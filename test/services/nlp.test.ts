@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { parseTaskMessage } from '../../src/services/nlp.js';
+import { config } from '../../src/config/index.js';
 
 describe('Seam 1: NLP Intent & Deadline Extraction', () => {
   const baseNow = new Date('2026-09-26T03:00:00.000Z'); // 10:00 WIB
@@ -61,6 +62,31 @@ describe('Seam 1: NLP Intent & Deadline Extraction', () => {
 
     expect(result.isTask).toBe(true);
     expect(result.deadline).not.toBeNull();
+  });
+
+  it('should parse Antigravity Bridge JSON wrapped in prose and markdown', async () => {
+    const originalBridgeUrl = config.antigravityBridgeUrl;
+    const originalFetch = globalThis.fetch;
+
+    config.antigravityBridgeUrl = 'http://antigravity-bridge.test';
+    globalThis.fetch = (async () =>
+      Response.json({
+        text: `Berikut hasil analisisnya:\n\n\`\`\`json\n{"isTask":true,"taskTitle":"Kirim laporan hasil bridge","deadline":"2026-09-27T03:00:00.000Z","needsDeadline":false}\n\`\`\``,
+      })) as unknown as typeof fetch;
+
+    try {
+      const result = await parseTaskMessage('Kirim laporan besok jam 10', {
+        now: baseNow,
+        geminiClient: null,
+      });
+
+      expect(result.taskTitle).toBe('Kirim laporan hasil bridge');
+      expect(result.deadline?.toISOString()).toBe('2026-09-27T03:00:00.000Z');
+      expect(result.needsDeadline).toBe(false);
+    } finally {
+      config.antigravityBridgeUrl = originalBridgeUrl;
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('should accurately parse Indonesian time phrases and clean titles with dots (14.00, jam 3 siang)', async () => {

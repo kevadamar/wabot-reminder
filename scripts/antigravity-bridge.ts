@@ -27,6 +27,7 @@ Bun.serve({
 
     // Generate prompt endpoint
     if (req.method === 'POST' && (url.pathname === '/generate' || url.pathname === '/prompt')) {
+      const startTime = Date.now();
       try {
         const body = (await req.json()) as { prompt?: string };
         const prompt = body?.prompt?.trim();
@@ -34,6 +35,8 @@ Bun.serve({
         if (!prompt) {
           return Response.json({ error: 'Prompt is required' }, { status: 400 });
         }
+
+        console.log(`[Bridge] Incoming prompt (${prompt.length} chars): "${prompt.slice(0, 60).replace(/\n/g, ' ')}..."`);
 
         // Execute agy CLI on host
         const proc = Bun.spawn(['agy', '-p', prompt, '--output-format', 'text'], {
@@ -44,12 +47,14 @@ Bun.serve({
         const output = await new Response(proc.stdout).text();
         const errOutput = await new Response(proc.stderr).text();
         const exitCode = await proc.exited;
+        const duration = Date.now() - startTime;
 
         if (exitCode !== 0) {
-          console.error(`[Bridge Error] agy exited with code ${exitCode}:`, errOutput);
+          console.error(`[Bridge Error] agy exited with code ${exitCode} after ${duration}ms:`, errOutput);
           return Response.json({ error: 'CLI execution failed', details: errOutput }, { status: 500 });
         }
 
+        console.log(`[Bridge] Prompt completed successfully in ${duration}ms`);
         return Response.json({ text: output.trim() });
       } catch (err: any) {
         console.error('[Bridge Error]', err);

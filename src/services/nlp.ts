@@ -188,10 +188,10 @@ function getGeminiClient() {
 export async function callAntigravityBridge(prompt: string): Promise<string | null> {
   if (!config.antigravityBridgeUrl) return null;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25000);
 
+  try {
     const res = await fetch(`${config.antigravityBridgeUrl}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -199,14 +199,14 @@ export async function callAntigravityBridge(prompt: string): Promise<string | nu
       signal: controller.signal,
     });
 
-    clearTimeout(timeout);
-
     if (res.ok) {
       const data = (await res.json()) as { text?: string };
       return data?.text?.trim() || null;
     }
   } catch (err: any) {
     console.warn(`[Antigravity Bridge] Error calling bridge at ${config.antigravityBridgeUrl}:`, err?.message || err);
+  } finally {
+    clearTimeout(timeout);
   }
 
   return null;
@@ -299,7 +299,8 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
     const bridgeText = await callAntigravityBridge(prompt);
     if (bridgeText) {
       try {
-        const cleaned = bridgeText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const jsonMatch = bridgeText.match(/\{[\s\S]*\}/);
+        const cleaned = jsonMatch ? jsonMatch[0] : bridgeText.replace(/```json/gi, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(cleaned);
         console.log(`✨ [NLP] Berhasil diproses menggunakan Antigravity CLI Bridge!`);
         return {
@@ -309,7 +310,9 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
           needsDeadline: Boolean(parsed.needsDeadline),
           rawText: text,
         };
-      } catch {}
+      } catch (parseErr: any) {
+        console.warn(`[NLP] Gagal mem-parse JSON dari Antigravity Bridge:`, parseErr?.message || parseErr);
+      }
     }
   }
 
