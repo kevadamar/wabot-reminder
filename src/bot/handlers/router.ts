@@ -196,7 +196,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       parsedTimeText = 'besok jam 09:00';
     }
 
-    const localParsed = parseLocalTask(parsedTimeText, new Date());
+    const localParsed = parseLocalTask(parsedTimeText, new Date(), user.timezone);
     if (localParsed.deadline) {
       const remindAt = calculateRemindAt(localParsed.deadline, {
         leadMinutes: user.leadReminderMinutes,

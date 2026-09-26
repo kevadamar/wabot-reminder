@@ -72,16 +72,33 @@ export function normalizeIndonesianTimePhrases(text: string): string {
 }
 
 /**
- * Local fallback parser combining regex & chrono.en
+ * Returns timezone offset in minutes for a given timezone name (e.g. Asia/Jakarta -> 420).
  */
-export function parseLocalTask(text: string, now: Date): ParseResult {
+export function getTimezoneOffsetMinutes(timezone = 'Asia/Jakarta', date: Date = new Date()): number {
+  try {
+    const tzString = date.toLocaleString('en-US', { timeZone: timezone, timeZoneName: 'shortOffset' });
+    const match = tzString.match(/GMT([+-]\d{1,2})(:(\d{2}))?/);
+    if (match && match[1]) {
+      const hours = parseInt(match[1], 10);
+      const mins = match[3] ? parseInt(match[3], 10) : 0;
+      return hours * 60 + (hours < 0 ? -mins : mins);
+    }
+  } catch {}
+  return 420; // Default to UTC+7 (Asia/Jakarta / WIB)
+}
+
+/**
+ * Local fallback parser combining regex & chrono.en with timezone awareness
+ */
+export function parseLocalTask(text: string, now: Date = new Date(), timezone = 'Asia/Jakarta'): ParseResult {
   const trimmed = text.trim();
 
   // Strip /todo command prefix if present
   let cleanInput = trimmed.replace(/^\/todo\s+/i, '').replace(/^todo:\s*/i, '').trim();
 
   const normalized = normalizeIndonesianTimePhrases(cleanInput);
-  const parsedDates = chrono.en.parse(normalized, now);
+  const tzOffsetMinutes = getTimezoneOffsetMinutes(timezone, now);
+  const parsedDates = chrono.en.parse(normalized, { instant: now, timezone: tzOffsetMinutes });
 
   if (parsedDates.length > 0 && parsedDates[0]) {
     const parsed = parsedDates[0];
@@ -89,15 +106,23 @@ export function parseLocalTask(text: string, now: Date): ParseResult {
 
     // Clean temporal string out of the task title
     let taskTitle = cleanInput;
-    if (parsed.text) {
-      // Find Indonesian equivalents if any, or remove matched text
-      taskTitle = cleanInput.replace(new RegExp(parsed.text, 'gi'), '').trim();
-      // Also clean remnant Indonesian time keywords
-      taskTitle = taskTitle.replace(/\b(besok|nanti|hari ini|jam\s*\d{1,2}(:\d{2})?(\s*(siang|sore|malam|pagi))?)\b/gi, '').trim();
-    }
 
-    // Clean extra punctuation / whitespace
-    taskTitle = taskTitle.replace(/^[-:, ]+|[-:, ]+$/g, '').trim();
+    // Clean Indonesian temporal keywords
+    taskTitle = taskTitle.replace(
+      /\b(besok\s+lusa|besok|lusa|kemarin|hari\s+ini|malam\s+ini|nanti\s+malam|nanti\s+sore|nanti\s+siang|nanti\s+pagi|nanti)\b/gi,
+      ''
+    );
+    taskTitle = taskTitle.replace(
+      /\bjam\s*\d{1,2}([:.]\d{2})?(\s*(siang|sore|malam|pagi))?\b/gi,
+      ''
+    );
+    taskTitle = taskTitle.replace(
+      /\b(senin|selasa|rabu|kamis|jum'?at|sabtu|minggu)(\s+depan)?\b/gi,
+      ''
+    );
+
+    // Clean extra punctuation, leading dots, commas, colons, and extra whitespace
+    taskTitle = taskTitle.replace(/^[-:., ]+|[-:., ]+$/g, '').replace(/\s+/g, ' ').trim();
 
     return {
       isTask: true,
@@ -208,5 +233,5 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
   }
 
   // 4. Local fallback parser
-  return parseLocalTask(text, now);
+  return parseLocalTask(text, now, options.timezone || config.defaultTimezone);
 }

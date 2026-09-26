@@ -11,5 +11,6 @@ RUN bun install
 COPY . .
 
 ENV NODE_ENV=production
+ENV TZ=Asia/Jakarta
 
 CMD ["bun", "run", "src/index.ts"]

@@ -62,4 +62,39 @@ describe('Seam 1: NLP Intent & Deadline Extraction', () => {
     expect(result.isTask).toBe(true);
     expect(result.deadline).not.toBeNull();
   });
+
+  it('should accurately parse Indonesian time phrases and clean titles with dots (14.00, jam 3 siang)', async () => {
+    // 1. "besok jam 3 siang mau beli matcha sama mas"
+    const r1 = await parseTaskMessage('besok jam 3 siang mau beli matcha sama mas', {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r1.isTask).toBe(true);
+    expect(r1.taskTitle).toBe('mau beli matcha sama mas');
+    expect(r1.deadline).not.toBeNull();
+    // 15:00 WIB is 08:00 UTC
+    expect(r1.deadline?.getUTCHours()).toBe(8);
+
+    // 2. "besok jam 2 siang mau facial"
+    const r2 = await parseTaskMessage('besok jam 2 siang mau facial', {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r2.isTask).toBe(true);
+    expect(r2.taskTitle).toBe('mau facial');
+    // 14:00 WIB is 07:00 UTC
+    expect(r2.deadline?.getUTCHours()).toBe(7);
+
+    // 3. "besok jam 14.00 mau facial" (with dot)
+    const r3 = await parseTaskMessage('besok jam 14.00 mau facial', {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r3.isTask).toBe(true);
+    expect(r3.taskTitle).toBe('mau facial');
+    expect(r3.deadline?.getUTCHours()).toBe(7);
+  });
 });
