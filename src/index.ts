@@ -1,4 +1,4 @@
-import { client, db } from './db/index.js';
+import { client, db, initDb } from './db/index.js';
 import { userSettings } from './db/schema.js';
 import { startBot } from './bot/client.js';
 import { eq } from 'drizzle-orm';
@@ -6,12 +6,14 @@ import { eq } from 'drizzle-orm';
 async function bootstrap() {
   console.log('🚀 Memulai WhatsApp To-Do Reminder Bot...');
 
-  // 1. Check DB connectivity
+  // 1. Check DB connectivity & auto-initialize tables
   try {
     await client`SELECT 1`;
     console.log('✅ Terhubung ke database PostgreSQL.');
+    await initDb();
+    console.log('✅ Skema tabel database PostgreSQL terverifikasi/diinisialisasi.');
   } catch (err) {
-    console.error('❌ Gagal terhubung ke PostgreSQL. Pastikan DATABASE_URL sudah benar:', err);
+    console.error('❌ Gagal terhubung ke PostgreSQL atau inisialisasi tabel:', err);
     process.exit(1);
   }
 
