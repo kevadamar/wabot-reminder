@@ -12,10 +12,12 @@ import { handleIncomingMessage, handleIncomingReaction, formatDateTime } from '.
 import { checkAndDispatchReminders } from '../services/reminder.js';
 import { db } from '../db/index.js';
 import { ensureUserSettings } from '../services/task.js';
+import { ensureAuthDirectory, saveCredentialsSafely } from './auth.js';
 
 const logger = pino({ level: config.logLevel });
 
 export async function startBot() {
+  await ensureAuthDirectory(config.authDir);
   const { state, saveCreds } = await useMultiFileAuthState(config.authDir);
   const { version, isLatest } = await fetchLatestWaWebVersion().catch(() => ({
     version: [2, 3000, 1015901307] as any,
@@ -33,7 +35,11 @@ export async function startBot() {
   });
 
   // Save updated credentials
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', async () => {
+    await saveCredentialsSafely(config.authDir, saveCreds, (error) => {
+      logger.error({ err: error, authDir: config.authDir }, 'Failed to persist Baileys credentials');
+    });
+  });
 
   // Connection lifecycle
   sock.ev.on('connection.update', (update) => {
