@@ -9,7 +9,10 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
 - 📥 **Pencatatan Tugas Cerdas**: Cukup kirim atau *forward* pesan ke bot, contoh:
   - *"Besok jam 2 siang ada jadwal meeting dengan klien"*
   - *"Ingatkan bayar tagihan listrik nanti malam jam 8"*
-- 🧠 **NLP Bahasa Indonesia**: Menggunakan Gemini 1.5 Flash (Free Tier) untuk ekstraksi terstruktur nama tugas & waktu dalam bahasa santai Indonesia, dengan fallback lokal (*Indonesian dictionary + chrono-node*) saat offline.
+- 🧠 **NLP Bahasa Indonesia (3-Tier Resilient Architecture)**:
+  1. **Tier 1 (Cloud)**: Google Gemini 1.5 Flash untuk ekstraksi terstruktur nama tugas & waktu dalam bahasa gaul / santai Indonesia.
+  2. **Tier 2 (Host CLI Fallback)**: **Antigravity CLI** (`agy`) yang berjalan di host server via bridge HTTP port 7860 jika API Gemini limit atau bermasalah.
+  3. **Tier 3 (Local Offline Fallback)**: Mesin regex komprehensif Bahasa Indonesia + `chrono-node` dengan kesadaran timezone (WIB/WITA/WIT). Bot **tidak pernah drop pesan atau crash** meski tanpa internet ke Google AI!
 - ⏰ **Pengingat Adaptif**: Otomatis mengirimkan pengingat 30 menit atau 15 menit sebelum deadline, serta peringatan susulan jika tugas melewati batas waktu (*overdue*).
 - ✅ **Penyelesaian Fleksibel**: Cukup beri reaksi emoji **✅** di balon pesan bot WhatsApp, balas pesan dengan emoji ✅, atau ketik `selesai <ID>`.
 - 🎉 **Afirmasi Positif Dinamis**: Merayakan setiap tugas yang selesai dengan pujian gaul dan memotivasi dari AI.
@@ -23,7 +26,7 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
 - **Runtime**: [Bun](https://bun.sh/)
 - **WhatsApp Client**: `@whiskeysockets/baileys` (v7 Native WebSockets)
 - **Database**: PostgreSQL (v16) via [Drizzle ORM](https://orm.drizzle.team/) & `postgres.js`
-- **AI / NLP**: `@google/genai` (Gemini 1.5 Flash) + `chrono-node`
+- **AI / NLP**: `@google/genai` (Gemini 1.5 Flash) + Antigravity CLI (`agy`) + `chrono-node`
 
 ---
 
@@ -157,8 +160,31 @@ DEFAULT_REMINDER_LEAD_MINUTES=30
 
 ### 4. Deploy & Scan QR Code
 1. Klik **Deploy**.
-2. Skema database akan otomatis diterapkan (`bun run db:push`) pada saat container pertama kali menyala.
+2. Skema database akan otomatis diterapkan (`initDb()` dan migrasi) pada saat container pertama kali menyala.
 3. Buka tab **Deployments** / **Logs** di Dokploy:
    - Anda akan melihat **QR Code WhatsApp** tercetak di log real-time Dokploy.
    - Pindai QR Code tersebut menggunakan WhatsApp di HP (*Perangkat Tertaut*).
    - Begitu terhubung, bot akan langsung aktif berjalan 24/7!
+
+---
+
+## ⚡ Setup Antigravity CLI Host Bridge (Opsional)
+
+Jika Anda sudah menginstal **Antigravity CLI** (`agy`) di VPS/Host server (di luar Docker container) dan ingin menggunakannya sebagai fallback cerdas saat API Gemini terkena kuota/limit:
+
+1. **Jalankan Bridge Script di Host OS**:
+   ```bash
+   bun run scripts/antigravity-bridge.ts
+   ```
+   *Atau jalankan sebagai background service menggunakan PM2:*
+   ```bash
+   pm2 start scripts/antigravity-bridge.ts --name agy-bridge --interpreter bun
+   ```
+   Bridge ini akan mendengarkan request HTTP di `http://0.0.0.0:7860`.
+
+2. **Hubungkan Container Dokploy ke Host**:
+   Di tab **Environment** Dokploy, tambahkan:
+   ```env
+   ANTIGRAVITY_BRIDGE_URL=http://host.docker.internal:7860
+   ```
+   *(Container akan otomatis memanggil bridge ini jika Gemini API tidak tersedia atau error)*.

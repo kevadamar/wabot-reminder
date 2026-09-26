@@ -12,8 +12,9 @@ services:
       - OWNER_NUMBER=${OWNER_NUMBER}
       - TIMEZONE=${TIMEZONE:-Asia/Jakarta}
       - DEFAULT_REMINDER_LEAD_MINUTES=${DEFAULT_REMINDER_LEAD_MINUTES:-30}
+      - ANTIGRAVITY_BRIDGE_URL=${ANTIGRAVITY_BRIDGE_URL:-http://host.docker.internal:7860}
       - AUTH_DIR=/app/auth_info
-    # When running alongside existing host postgres:
+    # When running alongside existing host postgres or host antigravity bridge:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

@@ -19,57 +19,7 @@ export interface ParseOptions {
 
 const GREETINGS_REGEX = /^(halo|hai|hey|p|ping|assalamualaikum|tes|test|pagi|siang|sore|malam|selamat pagi|selamat siang|selamat sore|selamat malam|makasih|terima kasih|thanks|thank you|ok|oke|siap|baik)\b/i;
 
-const TASK_VERBS_REGEX = /\b(beli|bayar|kirim|kerjakan|rapat|meeting|telpon|telepon|hubungi|call|transfer|catat|ingat|ingatkan|bikin|buat|periksa|cek|bereskan|beresin|ambil|jemput|selesaikan|baca|tulis|submit|upload|download|presentasi)\b/i;
-
-/**
- * Normalizes Indonesian relative time phrases into English equivalents for chrono-node.
- */
-export function normalizeIndonesianTimePhrases(text: string): string {
-  let normalized = text;
-
-  // Day references
-  normalized = normalized.replace(/\bbesok lusa\b/gi, 'in 2 days');
-  normalized = normalized.replace(/\bbesok\b/gi, 'tomorrow');
-  normalized = normalized.replace(/\bkemarin\b/gi, 'yesterday');
-  normalized = normalized.replace(/\bhari ini\b/gi, 'today');
-  normalized = normalized.replace(/\bmalam ini\b/gi, 'tonight');
-  normalized = normalized.replace(/\bnanti malam\b/gi, 'tonight');
-  normalized = normalized.replace(/\bnanti sore\b/gi, 'this afternoon at 17:00');
-  normalized = normalized.replace(/\bnanti siang\b/gi, 'this noon at 12:00');
-  normalized = normalized.replace(/\bnanti pagi\b/gi, 'this morning at 09:00');
-
-  // Days of week
-  normalized = normalized.replace(/\bsenin\b/gi, 'monday');
-  normalized = normalized.replace(/\bselasa\b/gi, 'tuesday');
-  normalized = normalized.replace(/\brabu\b/gi, 'wednesday');
-  normalized = normalized.replace(/\bkamis\b/gi, 'thursday');
-  normalized = normalized.replace(/\bjum'?at\b/gi, 'friday');
-  normalized = normalized.replace(/\bsabtu\b/gi, 'saturday');
-  normalized = normalized.replace(/\bminggu\b/gi, 'sunday');
-
-  // Time qualifiers: "jam 2 siang" -> "2:00 PM"
-  normalized = normalized.replace(/\bjam\s*(\d{1,2})[:.](\d{2})\s*(siang|sore|malam)\b/gi, (_, h, m, p) => {
-    let hour = parseInt(h, 10);
-    if ((p.toLowerCase() === 'siang' && hour < 12) || p.toLowerCase() === 'sore' || p.toLowerCase() === 'malam') {
-      if (hour < 12) hour += 12;
-    }
-    return `at ${hour}:${m}`;
-  });
-
-  normalized = normalized.replace(/\bjam\s*(\d{1,2})\s*(siang|sore|malam)\b/gi, (_, h, p) => {
-    let hour = parseInt(h, 10);
-    if ((p.toLowerCase() === 'siang' && hour < 12) || p.toLowerCase() === 'sore' || p.toLowerCase() === 'malam') {
-      if (hour < 12) hour += 12;
-    }
-    return `at ${hour}:00`;
-  });
-
-  normalized = normalized.replace(/\bjam\s*(\d{1,2})[:.](\d{2})\s*(pagi)?\b/gi, 'at $1:$2');
-  normalized = normalized.replace(/\bjam\s*(\d{1,2})\s*pagi\b/gi, 'at $1:00 AM');
-  normalized = normalized.replace(/\bjam\s*(\d{1,2})\b/gi, 'at $1:00');
-
-  return normalized;
-}
+const TASK_VERBS_REGEX = /\b(beli|bayar|kirim|kerjakan|rapat|meeting|telpon|telepon|hubungi|call|transfer|catat|ingat|ingatkan|bikin|buat|periksa|cek|bereskan|beresin|ambil|jemput|selesaikan|baca|tulis|submit|upload|download|presentasi|facial|service|servis|olahraga|gym|lari|belanja|jadwal)\b/i;
 
 /**
  * Returns timezone offset in minutes for a given timezone name (e.g. Asia/Jakarta -> 420).
@@ -85,6 +35,82 @@ export function getTimezoneOffsetMinutes(timezone = 'Asia/Jakarta', date: Date =
     }
   } catch {}
   return 420; // Default to UTC+7 (Asia/Jakarta / WIB)
+}
+
+/**
+ * Normalizes all Indonesian relative and absolute time phrases into English equivalents for chrono-node.
+ */
+export function normalizeIndonesianTimePhrases(text: string): string {
+  let normalized = text;
+
+  // Day references
+  normalized = normalized.replace(/\bbesok lusa\b/gi, 'in 2 days');
+  normalized = normalized.replace(/\blusa\b/gi, 'in 2 days');
+  normalized = normalized.replace(/\bbesok\b/gi, 'tomorrow');
+  normalized = normalized.replace(/\bkemarin\b/gi, 'yesterday');
+  normalized = normalized.replace(/\bhari ini\b/gi, 'today');
+  normalized = normalized.replace(/\bmalam ini\b/gi, 'tonight');
+  normalized = normalized.replace(/\bnanti malam\b/gi, 'tonight');
+  normalized = normalized.replace(/\bnanti sore\b/gi, 'this afternoon at 17:00');
+  normalized = normalized.replace(/\bnanti siang\b/gi, 'this noon at 12:00');
+  normalized = normalized.replace(/\bnanti pagi\b/gi, 'this morning at 09:00');
+
+  // Relative durations (e.g. "30 menit lagi", "2 jam lagi")
+  normalized = normalized.replace(/\b(\d+)\s*menit\s*lagi\b/gi, 'in $1 minutes');
+  normalized = normalized.replace(/\b(\d+)\s*jam\s*lagi\b/gi, 'in $1 hours');
+  normalized = normalized.replace(/\b(\d+)\s*hari\s*lagi\b/gi, 'in $1 days');
+
+  // Days of week with "depan" (e.g. "senin depan" -> "next monday")
+  normalized = normalized.replace(/\bsenin\s+depan\b/gi, 'next monday');
+  normalized = normalized.replace(/\bselasa\s+depan\b/gi, 'next tuesday');
+  normalized = normalized.replace(/\brabu\s+depan\b/gi, 'next wednesday');
+  normalized = normalized.replace(/\bkamis\s+depan\b/gi, 'next thursday');
+  normalized = normalized.replace(/\bjum'?at\s+depan\b/gi, 'next friday');
+  normalized = normalized.replace(/\bsabtu\s+depan\b/gi, 'next saturday');
+  normalized = normalized.replace(/\bminggu\s+depan\b/gi, 'next sunday');
+
+  // Regular days of week
+  normalized = normalized.replace(/\bsenin\b/gi, 'monday');
+  normalized = normalized.replace(/\bselasa\b/gi, 'tuesday');
+  normalized = normalized.replace(/\brabu\b/gi, 'wednesday');
+  normalized = normalized.replace(/\bkamis\b/gi, 'thursday');
+  normalized = normalized.replace(/\bjum'?at\b/gi, 'friday');
+  normalized = normalized.replace(/\bsabtu\b/gi, 'saturday');
+  normalized = normalized.replace(/\bminggu\b/gi, 'sunday');
+
+  // Jam 2 siang, jam 14.30, pukul 15.00 (with colon or dot separator)
+  normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})[:.](\d{2})\s*(siang|sore|malam)\b/gi, (_, _k, h, m, p) => {
+    let hour = parseInt(h, 10);
+    if ((p.toLowerCase() === 'siang' && hour < 12) || p.toLowerCase() === 'sore' || p.toLowerCase() === 'malam') {
+      if (hour < 12) hour += 12;
+    }
+    return `at ${hour}:${m}`;
+  });
+
+  normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})\s*(siang|sore|malam)\b/gi, (_, _k, h, p) => {
+    let hour = parseInt(h, 10);
+    if ((p.toLowerCase() === 'siang' && hour < 12) || p.toLowerCase() === 'sore' || p.toLowerCase() === 'malam') {
+      if (hour < 12) hour += 12;
+    }
+    return `at ${hour}:00`;
+  });
+
+  normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})[:.](\d{2})\s*(pagi|subuh)?\b/gi, (_, _k, h, m) => {
+    return `at ${h}:${m}`;
+  });
+
+  normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})\s*(pagi|subuh)\b/gi, (_, _k, h) => {
+    return `at ${h}:00 AM`;
+  });
+
+  normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})\b/gi, (_, _k, h) => {
+    return `at ${h}:00`;
+  });
+
+  // Standalone 14.00 or 14:00 without "jam" prefix
+  normalized = normalized.replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*(wib|wita|wit)?\b/gi, 'at $1:$2');
+
+  return normalized;
 }
 
 /**
@@ -109,17 +135,23 @@ export function parseLocalTask(text: string, now: Date = new Date(), timezone = 
 
     // Clean Indonesian temporal keywords
     taskTitle = taskTitle.replace(
-      /\b(besok\s+lusa|besok|lusa|kemarin|hari\s+ini|malam\s+ini|nanti\s+malam|nanti\s+sore|nanti\s+siang|nanti\s+pagi|nanti)\b/gi,
-      ''
-    );
-    taskTitle = taskTitle.replace(
-      /\bjam\s*\d{1,2}([:.]\d{2})?(\s*(siang|sore|malam|pagi))?\b/gi,
+      /\b(besok\s+lusa|besok|lusa|kemarin|hari\s+ini|malam\s+ini|siang\s+ini|sore\s+ini|pagi\s+ini|nanti\s+malam|nanti\s+sore|nanti\s+siang|nanti\s+pagi|nanti)\b/gi,
       ''
     );
     taskTitle = taskTitle.replace(
       /\b(senin|selasa|rabu|kamis|jum'?at|sabtu|minggu)(\s+depan)?\b/gi,
       ''
     );
+    taskTitle = taskTitle.replace(
+      /\b(jam|pukul|pk)\s*\d{1,2}([:.]\d{2})?(\s*(siang|sore|malam|pagi|subuh))?(\s*wib|\s*wita|\s*wit)?\b/gi,
+      ''
+    );
+    taskTitle = taskTitle.replace(
+      /\b([01]?\d|2[0-3])[:.][0-5]\d(\s*(siang|sore|malam|pagi|subuh))?(\s*wib|\s*wita|\s*wit)?\b/gi,
+      ''
+    );
+    taskTitle = taskTitle.replace(/\b\d+\s*(menit|jam|hari)\s*lagi\b/gi, '');
+    taskTitle = taskTitle.replace(/\b(pada|di|untuk|tgl|tanggal)\b/gi, '');
 
     // Clean extra punctuation, leading dots, commas, colons, and extra whitespace
     taskTitle = taskTitle.replace(/^[-:., ]+|[-:., ]+$/g, '').replace(/\s+/g, ' ').trim();
@@ -151,6 +183,36 @@ function getGeminiClient() {
 }
 
 /**
+ * Calls host Antigravity CLI Bridge (if configured via ANTIGRAVITY_BRIDGE_URL)
+ */
+export async function callAntigravityBridge(prompt: string): Promise<string | null> {
+  if (!config.antigravityBridgeUrl) return null;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(`${config.antigravityBridgeUrl}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = (await res.json()) as { text?: string };
+      return data?.text?.trim() || null;
+    }
+  } catch (err: any) {
+    console.warn(`[Antigravity Bridge] Error calling bridge at ${config.antigravityBridgeUrl}:`, err?.message || err);
+  }
+
+  return null;
+}
+
+/**
  * Main public interface for parsing task messages
  */
 export async function parseTaskMessage(text: string, options: ParseOptions = {}): Promise<ParseResult> {
@@ -174,7 +236,7 @@ export async function parseTaskMessage(text: string, options: ParseOptions = {})
 
     // If not forwarded and no explicit /todo, check for task verbs or temporal words
     const hasTaskVerb = TASK_VERBS_REGEX.test(trimmed);
-    const hasTimeKeyword = /\b(besok|nanti|jam\s*\d|deadline|hari ini)\b/i.test(trimmed);
+    const hasTimeKeyword = /\b(besok|nanti|jam\s*\d|pukul|deadline|hari ini|minggu depan|lusa)\b/i.test(trimmed);
 
     if (!hasTaskVerb && !hasTimeKeyword) {
       return {
@@ -187,11 +249,7 @@ export async function parseTaskMessage(text: string, options: ParseOptions = {})
     }
   }
 
-  // 3. Try Gemini Structured Extraction if client is configured
-  const gemini = options.geminiClient !== undefined ? options.geminiClient : getGeminiClient();
-  if (gemini) {
-    try {
-      const prompt = `Kamu adalah asisten pengurai tugas to-do list WhatsApp dalam Bahasa Indonesia.
+  const prompt = `Kamu adalah asisten pengurai tugas to-do list WhatsApp dalam Bahasa Indonesia.
 Waktu saat ini (Reference Time ISO): "${now.toISOString()}" (Zona Waktu: ${options.timezone || config.defaultTimezone}).
 Analisis pesan berikut: "${trimmed}"
 
@@ -204,6 +262,10 @@ Instruksi:
 Balas HANYA dengan JSON valid tanpa markdown formatting:
 {"isTask": boolean, "taskTitle": string, "deadline": string | null, "needsDeadline": boolean}`;
 
+  // 3. Tier 1: Try Gemini Structured Extraction if client is configured
+  const gemini = options.geminiClient !== undefined ? options.geminiClient : getGeminiClient();
+  if (gemini) {
+    try {
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Gemini API timeout (3s)')), 3000)
       );
@@ -228,10 +290,29 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
         rawText: text,
       };
     } catch (err: any) {
-      console.warn(`[NLP] Gemini error (${err?.message || err}), beralih ke parser lokal.`);
+      console.warn(`[NLP] Gemini error (${err?.message || err}), mencoba opsi fallback...`);
     }
   }
 
-  // 4. Local fallback parser
+  // 4. Tier 2: Try Antigravity CLI Host Bridge if configured
+  if (config.antigravityBridgeUrl) {
+    const bridgeText = await callAntigravityBridge(prompt);
+    if (bridgeText) {
+      try {
+        const cleaned = bridgeText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleaned);
+        console.log(`✨ [NLP] Berhasil diproses menggunakan Antigravity CLI Bridge!`);
+        return {
+          isTask: Boolean(parsed.isTask),
+          taskTitle: parsed.taskTitle || trimmed,
+          deadline: parsed.deadline ? new Date(parsed.deadline) : null,
+          needsDeadline: Boolean(parsed.needsDeadline),
+          rawText: text,
+        };
+      } catch {}
+    }
+  }
+
+  // 5. Tier 3: Local Offline Parser
   return parseLocalTask(text, now, options.timezone || config.defaultTimezone);
 }

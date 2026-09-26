@@ -1,6 +1,7 @@
 import fallbackAffirmations from '../data/affirmations.json';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config/index.js';
+import { callAntigravityBridge } from './nlp.js';
 
 let defaultGeminiClient: any = null;
 function getGeminiClient() {
@@ -22,6 +23,7 @@ export function getRandomFallbackAffirmation(): string {
  * Public interface to generate positive affirmation upon task completion
  */
 export async function generateAffirmation(taskName: string, customClient?: any): Promise<string> {
+  const prompt = `Berikan satu kalimat singkat penyemangat atau pujian ramah berbahasa Indonesia untuk seseorang yang baru saja menyelesaikan tugas: "${taskName}". Jangan gunakan tanda petik ganda di awal dan akhir.`;
   const gemini = customClient !== undefined ? customClient : getGeminiClient();
 
   if (gemini) {
@@ -43,9 +45,18 @@ export async function generateAffirmation(taskName: string, customClient?: any):
         return text.replace(/^["']|["']$/g, '');
       }
     } catch (err: any) {
-      console.warn(`[Affirmation] Gemini error (${err?.message || err}), beralih ke kalimat motivasi lokal.`);
+      console.warn(`[Affirmation] Gemini error (${err?.message || err}), beralih ke opsi fallback...`);
     }
   }
 
+  // Tier 2: Try Antigravity CLI Host Bridge
+  if (config.antigravityBridgeUrl) {
+    const bridgeText = await callAntigravityBridge(prompt);
+    if (bridgeText) {
+      return bridgeText.replace(/^["']|["']$/g, '').trim();
+    }
+  }
+
+  // Tier 3: Local Offline Affirmations
   return getRandomFallbackAffirmation();
 }

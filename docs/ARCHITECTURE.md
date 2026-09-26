@@ -12,7 +12,7 @@ The system is designed as a modular, lightweight daemon executed under the **Bun
 flowchart TD
     User["📱 WhatsApp User"]
     
-    subgraph Host["Bun Runtime"]
+    subgraph Host["Bun Runtime & Host Services"]
         Baileys["Baileys Socket Client (v7)<br/>@whiskeysockets/baileys"]
         Router["Message & Reaction Router<br/>src/bot/handlers/router.ts"]
         
@@ -23,6 +23,7 @@ flowchart TD
             AffirmSvc["Affirmation Service<br/>src/services/affirmation.ts"]
         end
         
+        AgyBridge["Antigravity CLI Host Bridge<br/>scripts/antigravity-bridge.ts :7860"]
         LocalParser["Local Chrono + ID Normalizer<br/>(Offline Fallback)"]
         LocalQuotes["Local Affirmations JSON<br/>src/data/affirmations.json"]
     end
@@ -38,15 +39,17 @@ flowchart TD
     Baileys -->|Events: upsert, reaction| Router
     
     Router -->|1. Extract Intent & Time| NLP
-    NLP -->|Primary: Structured JSON| Gemini
-    NLP -.->|Fallback on error/limit| LocalParser
+    NLP -->|Tier 1: Cloud API| Gemini
+    NLP -.->|Tier 2: Host CLI Fallback| AgyBridge
+    NLP -.->|Tier 3: Offline Regex/Chrono| LocalParser
     
     Router -->|2. Create / Resolve / List| TaskSvc
     TaskSvc <-->|Drizzle ORM| Postgres
     
     Router -->|3. Generate Celebration| AffirmSvc
-    AffirmSvc -->|Dynamic prompt| Gemini
-    AffirmSvc -.->|Fallback on error/limit| LocalQuotes
+    AffirmSvc -->|Tier 1: Cloud API| Gemini
+    AffirmSvc -.->|Tier 2: Host CLI Fallback| AgyBridge
+    AffirmSvc -.->|Tier 3: Local Quotes| LocalQuotes
     
     ReminderWorker -->|Poll due tasks every 60s| Postgres
     ReminderWorker -->|Dispatch alerts| Baileys

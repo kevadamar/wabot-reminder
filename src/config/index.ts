@@ -6,4 +6,5 @@ export const config = {
   defaultReminderLeadMinutes: parseInt(process.env.DEFAULT_REMINDER_LEAD_MINUTES || '30', 10),
   authDir: process.env.AUTH_DIR || './auth_info',
   logLevel: process.env.LOG_LEVEL || 'info',
+  antigravityBridgeUrl: process.env.ANTIGRAVITY_BRIDGE_URL || '',
 };
