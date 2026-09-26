@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, or } from 'drizzle-orm';
 import { tasks, taskMessages, userSettings, type Task, type UserSetting } from '../db/schema.js';
 import { config } from '../config/index.js';
 
@@ -127,7 +127,7 @@ export async function listActiveTasks(db: any, userJid: string): Promise<Task[]>
         or(eq(tasks.status, 'pending'), eq(tasks.status, 'pending_deadline'))
       )
     )
-    .orderBy(desc(tasks.createdAt));
+    .orderBy(asc(tasks.deadline), asc(tasks.id));
 }
 
 /**

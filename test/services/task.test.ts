@@ -54,6 +54,58 @@ describe('Seam 3: Task Management & State Operations', () => {
     expect(activeList[0]?.id).toBe(created.id);
   });
 
+  it('should list active tasks by deadline ascending with missing deadlines last', async () => {
+    await ensureUserSettings(db, testUserJid, 'Budi Test', true);
+
+    await db.insert(tasks).values([
+      {
+        userJid: testUserJid,
+        task: 'Deadline mendatang paling jauh',
+        deadline: new Date('2026-09-28T10:00:00.000Z'),
+        status: 'pending',
+        createdAt: new Date('2026-09-20T01:00:00.000Z'),
+      },
+      {
+        userJid: testUserJid,
+        task: 'Belum punya deadline',
+        deadline: null,
+        status: 'pending_deadline',
+        createdAt: new Date('2026-09-20T02:00:00.000Z'),
+      },
+      {
+        userJid: testUserJid,
+        task: 'Deadline terlewat lebih baru',
+        deadline: new Date('2026-09-26T08:00:00.000Z'),
+        status: 'pending',
+        createdAt: new Date('2026-09-20T03:00:00.000Z'),
+      },
+      {
+        userJid: testUserJid,
+        task: 'Deadline mendatang paling dekat',
+        deadline: new Date('2026-09-27T01:00:00.000Z'),
+        status: 'pending',
+        createdAt: new Date('2026-09-20T04:00:00.000Z'),
+      },
+      {
+        userJid: testUserJid,
+        task: 'Deadline terlewat paling lama',
+        deadline: new Date('2026-09-25T08:00:00.000Z'),
+        status: 'pending',
+        createdAt: new Date('2026-09-20T05:00:00.000Z'),
+      },
+    ]);
+
+    const activeList = await listActiveTasks(db, testUserJid);
+
+    expect(activeList.map((task) => task.task)).toEqual([
+      'Deadline terlewat paling lama',
+      'Deadline terlewat lebih baru',
+      'Deadline mendatang paling dekat',
+      'Deadline mendatang paling jauh',
+      'Belum punya deadline',
+    ]);
+  });
+
   it('should link WhatsApp message ID and find task by message ID', async () => {
     await ensureUserSettings(db, testUserJid, 'Budi Test', true);
     const created = await createTask(db, {
