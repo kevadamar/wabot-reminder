@@ -2,6 +2,7 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestWaWebVersion,
   useMultiFileAuthState,
+  jidNormalizedUser,
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
@@ -60,12 +61,39 @@ export async function startBot() {
     }
   });
 
+  const botSentMessageIds = new Set<string>();
+
+  // Wrap sock.sendMessage to record outgoing IDs
+  const originalSendMessage = sock.sendMessage.bind(sock);
+  sock.sendMessage = async (jid: string, content: any, options?: any) => {
+    const res = await originalSendMessage(jid, content, options);
+    if (res?.key?.id) {
+      botSentMessageIds.add(res.key.id);
+      if (botSentMessageIds.size > 500) {
+        const first = botSentMessageIds.values().next().value;
+        if (first) botSentMessageIds.delete(first);
+      }
+    }
+    return res;
+  };
+
   // Message listener
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
 
+    const botJid = sock.user?.id ? jidNormalizedUser(sock.user.id) : '';
+
     for (const msg of messages) {
-      if (msg.key.fromMe) continue;
+      // 1. Skip if message was sent by the bot's automated handler
+      if (msg.key?.id && botSentMessageIds.has(msg.key.id)) continue;
+
+      const rawJid = msg.key?.remoteJid || '';
+      const normalizedRemote = jidNormalizedUser(rawJid);
+      const isSelfChat = botJid && normalizedRemote === botJid;
+
+      // 2. If sent from this account to another person, skip. But allow self-chat!
+      if (msg.key.fromMe && !isSelfChat) continue;
+
       try {
         await handleIncomingMessage(sock, msg);
       } catch (err) {
@@ -77,7 +105,7 @@ export async function startBot() {
   // Reaction listener
   sock.ev.on('messages.reaction', async (reactions) => {
     for (const r of reactions) {
-      if (r.key.fromMe) continue;
+      if (r.key?.id && botSentMessageIds.has(r.key.id) && r.key.fromMe) continue;
       try {
         await handleIncomingReaction(sock, r);
       } catch (err) {

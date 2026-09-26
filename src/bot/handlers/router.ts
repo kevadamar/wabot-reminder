@@ -51,15 +51,20 @@ Ketik langsung tugasmu seperti biasa, contoh:
 
 Kapan pun kamu butuh bantuan, cukup ketik *help* atau *bantuan* ya! ✨`;
 
+import { jidNormalizedUser } from '@whiskeysockets/baileys';
+
 /**
  * Handles incoming WhatsApp messages
  */
 export async function handleIncomingMessage(sock: any, msg: any): Promise<void> {
   if (!msg.message || !msg.key?.remoteJid) return;
-  const remoteJid = msg.key.remoteJid;
+  const rawJid = msg.key.remoteJid;
 
-  // Ignore status broadcast messages
-  if (remoteJid === 'status@broadcast' || remoteJid.endsWith('@g.us')) return;
+  // Ignore status broadcast messages or group chats
+  if (rawJid === 'status@broadcast' || rawJid.endsWith('@g.us')) return;
+
+  // Normalize JID (strips device ID like :12@s.whatsapp.net to 628xxx@s.whatsapp.net)
+  const remoteJid = jidNormalizedUser(rawJid);
 
   const text =
     msg.message.conversation ||
@@ -70,6 +75,8 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   const trimmedText = text.trim();
   if (!trimmedText) return;
 
+  console.log(`📩 [Pesan Masuk] Dari: ${remoteJid} (Raw: ${rawJid}) | Teks: "${trimmedText}"`);
+
   const contextInfo = msg.message.extendedTextMessage?.contextInfo;
   const isForwarded = Boolean(contextInfo?.isForwarded);
   const stanzaId = contextInfo?.stanzaId;
@@ -77,12 +84,16 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   // 1. Check user permission
   const user = await ensureUserSettings(db, remoteJid, msg.pushName || null, false);
   if (!user.isAllowed) {
-    // Politeness check: only reply once or ignore
+    console.warn(`⛔ [Akses Ditolak] Nomor ${remoteJid} belum diizinkan (is_allowed = false).`);
+    await sock.sendMessage(remoteJid, {
+      text: `⚠️ *Akses Dibatasi*\n\nNomor Anda (${remoteJid.replace('@s.whatsapp.net', '')}) belum terdaftar dalam whitelist bot to-do ini. Silakan hubungi pemilik bot atau periksa tabel database.`,
+    });
     return;
   }
 
-  // 2. Help command
-  if (/^(\/help|help|bantuan|menu)$/i.test(trimmedText)) {
+  // 2. Help command (includes /help, help, halp, bantuan, menu)
+  if (/^(\/help|help|halp|bantuan|menu)$/i.test(trimmedText)) {
+    console.log(`ℹ️ [Command] Menampilkan panduan bantuan untuk ${remoteJid}`);
     await sock.sendMessage(remoteJid, { text: HELP_MESSAGE });
     return;
   }
@@ -213,7 +224,13 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   });
 
   if (!nlpResult.isTask) {
-    // Not a task, ignore to prevent noise
+    // Reply warmly to greetings so the user knows the bot is active and ready
+    if (/^(halo|hai|hey|p|ping|assalamualaikum|pagi|siang|sore|malam|tes|test)\b/i.test(trimmedText)) {
+      console.log(`👋 [Sapaan] Membalas salam ramah ke ${remoteJid}`);
+      await sock.sendMessage(remoteJid, {
+        text: `Halo! 👋 Aku asisten pengingat tugasmu.\n\nAda tugas yang ingin dicatat hari ini? Kamu bisa ketik langsung (contoh: _"Besok jam 2 siang rapat tim"_), atau ketik *help* untuk melihat panduan ya! ✨`,
+      });
+    }
     return;
   }
 
