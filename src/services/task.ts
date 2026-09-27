@@ -71,13 +71,13 @@ export async function createTask(db: any, input: CreateTaskInput): Promise<Task>
 
   const createdTask: Task = inserted[0]!;
 
-  // Log initial creation in task_history
+  // Log initial creation in task_history (recording initial deadline in oldValue if present)
   await db.insert(taskHistory).values({
     taskId: createdTask.id,
     userJid: createdTask.userJid,
     changeType: 'create',
     fieldChanged: 'task',
-    oldValue: null,
+    oldValue: createdTask.deadline ? createdTask.deadline.toISOString() : null,
     newValue: createdTask.task,
     rawInput: null,
   });
@@ -197,14 +197,18 @@ export async function listActiveTasks(db: any, userJid: string): Promise<Task[]>
 }
 
 /**
- * Updates a pending_deadline task with extracted deadline and remind_at
+ * Updates a pending_deadline task with extracted deadline and remind_at, logging reschedule in taskHistory
  */
 export async function updateTaskDeadline(
   db: any,
   taskId: number,
   deadline: Date,
-  remindAt: Date
+  remindAt: Date,
+  rawInput?: string
 ): Promise<Task | null> {
+  const existing = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  const oldDeadline = existing[0]?.deadline ? new Date(existing[0].deadline) : null;
+
   const updated = await db
     .update(tasks)
     .set({
@@ -215,6 +219,18 @@ export async function updateTaskDeadline(
     })
     .where(eq(tasks.id, taskId))
     .returning();
+
+  if (updated[0]) {
+    await db.insert(taskHistory).values({
+      taskId: updated[0].id,
+      userJid: updated[0].userJid,
+      changeType: 'reschedule',
+      fieldChanged: 'deadline',
+      oldValue: oldDeadline ? oldDeadline.toISOString() : null,
+      newValue: deadline.toISOString(),
+      rawInput: rawInput ?? null,
+    });
+  }
 
   return updated[0] ?? null;
 }

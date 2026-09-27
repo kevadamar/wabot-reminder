@@ -341,8 +341,38 @@ describe('Seam 5: Message & Reaction Router', () => {
     });
 
     expect(sentMessages.length).toBe(1);
-    expect(sentMessages[0]).toContain('Riwayat Perubahan Tugas');
+    expect(sentMessages[0]).toContain('Riwayat & Audit Trail Tugas');
+    expect(sentMessages[0]).toContain('Kondisi Saat Ini');
     expect(sentMessages[0]).toContain('Tugas dibuat');
+    expect(sentMessages[0]).toContain('Deadline awal');
+  });
+
+  it('should reschedule task via direct command "reschedule <ID> <waktu>"', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Uji Direct Reschedule',
+      deadline: new Date('2026-09-28T10:00:00.000Z'),
+      status: 'pending',
+    });
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_CMD_RESCHEDULE' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_CMD_RESCHEDULE' },
+      message: { conversation: `reschedule ${task.id} besok jam 16:00` },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Jadwal Berhasil Diperbarui!');
+    expect(sentMessages[0]).toContain('Waktu lama:');
+    expect(sentMessages[0]).toContain('Waktu baru:');
   });
 
   it('should display task tree and details with "detail <ID>" command', async () => {

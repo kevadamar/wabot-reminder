@@ -57,10 +57,12 @@ describe('Task Revision & Audit Log', () => {
     const createLog = history[0];
     expect(createLog?.changeType).toBe('create');
     expect(createLog?.newValue).toBe('Presentasi Proyek Q4');
+    expect(createLog?.oldValue).toBe(initialDeadline.toISOString());
 
     const rescheduleLog = history[1];
     expect(rescheduleLog?.changeType).toBe('reschedule');
     expect(rescheduleLog?.fieldChanged).toBe('deadline');
+    expect(rescheduleLog?.oldValue).toBe(initialDeadline.toISOString());
     expect(rescheduleLog?.rawInput).toBe('ubah waktu: 2 hari lagi jam 10 pagi');
     expect(rescheduleLog?.newValue).toBe(newDeadline.toISOString());
   });

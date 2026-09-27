@@ -87,14 +87,33 @@ Kapan pun kamu butuh bantuan, cukup ketik *help* atau *bantuan* ya! ✨`;
 function formatHistoryAction(item: any, timezone: string): string {
   const dateStr = formatDateTime(new Date(item.createdAt), timezone);
   switch (item.changeType) {
-    case 'create':
-      return `• [${dateStr}] ➕ Tugas dibuat: "${item.newValue}"`;
-    case 'reschedule': {
-      const newDate = item.newValue ? formatDateTime(new Date(item.newValue), timezone) : 'tanpa waktu';
-      return `• [${dateStr}] 🔄 Jadwal diubah ke: ${newDate}`;
+    case 'create': {
+      const initDeadline = item.oldValue
+        ? formatDateTime(new Date(item.oldValue), timezone)
+        : 'Belum ditentukan';
+      return `• [${dateStr}] ➕ Tugas dibuat: "${item.newValue}"\n   ⏰ Deadline awal: ${initDeadline}`;
     }
-    case 'rename':
-      return `• [${dateStr}] ✏️ Judul diubah ke: "${item.newValue}"`;
+    case 'reschedule': {
+      const oldDate = item.oldValue
+        ? formatDateTime(new Date(item.oldValue), timezone)
+        : 'Belum ada jadwal';
+      const newDate = item.newValue
+        ? formatDateTime(new Date(item.newValue), timezone)
+        : 'Tanpa waktu';
+      let entry = `• [${dateStr}] 🔄 Jadwal diubah: ${oldDate} ➔ ${newDate}`;
+      if (item.rawInput) {
+        entry += `\n   💬 Catatan/Pesan: _"${item.rawInput}"_`;
+      }
+      return entry;
+    }
+    case 'rename': {
+      const oldTitle = item.oldValue ? `"${item.oldValue}" ➔ ` : '';
+      let entry = `• [${dateStr}] ✏️ Judul diubah: ${oldTitle}"${item.newValue}"`;
+      if (item.rawInput) {
+        entry += `\n   💬 Catatan/Pesan: _"${item.rawInput}"_`;
+      }
+      return entry;
+    }
     case 'resolve':
       return `• [${dateStr}] ✅ Tugas diselesaikan`;
     case 'cancel':
@@ -460,9 +479,77 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       return;
     }
 
-    let replyText = `📜 *Riwayat Perubahan Tugas [ID: ${taskId}]*\n\n`;
-    replyText += historyList.map((item) => formatHistoryAction(item, user.timezone)).join('\n');
+    const taskTree = await getTaskTree(db, taskId, remoteJid);
+    const currentTask = taskTree?.task;
+
+    let replyText = `📜 *Riwayat & Audit Trail Tugas [ID: ${taskId}]*\n\n`;
+
+    if (currentTask) {
+      const currentDeadlineStr = currentTask.deadline
+        ? formatDateTime(new Date(currentTask.deadline), user.timezone)
+        : 'Belum ditentukan';
+      const statusEmoji =
+        currentTask.status === 'resolved'
+          ? '✅ Selesai'
+          : currentTask.status === 'cancelled'
+          ? '❌ Dibatalkan'
+          : '⏳ Aktif';
+
+      replyText += `📌 *Kondisi Saat Ini (Current):*\n`;
+      replyText += `• Judul: *${currentTask.task}*\n`;
+      replyText += `• Status: ${statusEmoji}\n`;
+      replyText += `• Deadline: *${currentDeadlineStr}*\n\n`;
+    }
+
+    replyText += `📋 *Kronologi Perubahan (Audit Trail):*\n`;
+    replyText += historyList.map((item) => formatHistoryAction(item, user.timezone)).join('\n\n');
     await sock.sendMessage(remoteJid, { text: replyText });
+    return;
+  }
+
+  // 6. Direct Reschedule command: reschedule <ID> <waktu> / ubah waktu <ID> <waktu>
+  const directRescheduleMatch = trimmedText.match(/^(?:reschedule|ubah\s*waktu|ganti\s*waktu)\s+(\d+)\s+(.+)$/i);
+  if (directRescheduleMatch && directRescheduleMatch[1] && directRescheduleMatch[2]) {
+    const taskId = parseInt(directRescheduleMatch[1], 10);
+    const timeStr = directRescheduleMatch[2].trim();
+
+    const localParsed = parseLocalTask(timeStr, new Date(), user.timezone);
+    let newDeadline = localParsed.deadline;
+    if (!newDeadline) {
+      const nlp = await parseTaskMessage(timeStr, { now: new Date(), timezone: user.timezone });
+      newDeadline = nlp.deadline;
+    }
+
+    if (!newDeadline) {
+      await sock.sendMessage(remoteJid, {
+        text: `⚠️ Tidak dapat mengenali waktu "${timeStr}". Coba format yang lebih jelas seperti: _"besok jam 06.30"_ atau _"hari ini jam 20:00"_.`,
+      });
+      return;
+    }
+
+    const res = await rescheduleTask(db, {
+      taskId,
+      userJid: remoteJid,
+      newDeadline,
+      leadMinutes: user.leadReminderMinutes,
+      rawInput: trimmedText,
+    });
+
+    if (!res) {
+      await sock.sendMessage(remoteJid, {
+        text: `Tugas ID [${taskId}] tidak ditemukan atau kamu tidak memiliki akses.`,
+      });
+      return;
+    }
+
+    const deadlineStr = formatDateTime(newDeadline, user.timezone);
+    const oldDeadlineStr = res.oldDeadline
+      ? formatDateTime(res.oldDeadline, user.timezone)
+      : 'Belum ada jadwal';
+
+    await sock.sendMessage(remoteJid, {
+      text: `🔄 *Jadwal Berhasil Diperbarui!* [ID: ${taskId}]\n📝 Tugas: *${res.updatedTask.task}*\n⏰ Waktu lama: ${oldDeadlineStr}\n⏰ Waktu baru: *${deadlineStr}*\n\nPengingat otomatis telah disesuaikan kembali. ✨`,
+    });
     return;
   }
 
@@ -628,8 +715,11 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
       if (res) {
         const deadlineStr = formatDateTime(newDeadline, user.timezone);
+        const oldDeadlineStr = res.oldDeadline
+          ? formatDateTime(res.oldDeadline, user.timezone)
+          : 'Belum ada jadwal';
         await sock.sendMessage(remoteJid, {
-          text: `🔄 *Jadwal Berhasil Diperbarui!*\n📝 Tugas: *${targetTask.task}*\n⏰ Waktu baru: *${deadlineStr}*\n\nPengingat otomatis telah disesuaikan kembali. ✨`,
+          text: `🔄 *Jadwal Berhasil Diperbarui!*\n📝 Tugas: *${targetTask.task}*\n⏰ Waktu lama: ${oldDeadlineStr}\n⏰ Waktu baru: *${deadlineStr}*\n\nPengingat otomatis telah disesuaikan kembali. ✨`,
         });
         return;
       }
@@ -757,7 +847,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
         leadMinutes: user.leadReminderMinutes,
       });
 
-      const updated = await updateTaskDeadline(db, pendingTask.id, localParsed.deadline, remindAt);
+      const updated = await updateTaskDeadline(db, pendingTask.id, localParsed.deadline, remindAt, trimmedText);
       if (updated) {
         const deadlineStr = formatDateTime(localParsed.deadline, user.timezone);
         const reply = await sock.sendMessage(remoteJid, {
