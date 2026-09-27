@@ -159,6 +159,9 @@ sequenceDiagram
 erDiagram
     user_settings ||--o{ tasks : owns
     tasks ||--o{ task_messages : tracks
+    tasks ||--o{ task_attachments : contains
+    tasks ||--o{ task_history : audits
+    tasks ||--o{ tasks : "parent/subtask"
 
     user_settings {
         varchar user_jid PK "WhatsApp remote JID (e.g. 628123@s.whatsapp.net)"
@@ -172,6 +175,7 @@ erDiagram
 
     tasks {
         serial id PK "Auto-increment ID"
+        int parent_id FK "Self-referencing foreign key for nested sub-tasks"
         varchar user_jid FK "Foreign key to user_settings"
         text task "Clean task description"
         timestamptz deadline "Scheduled completion deadline"
@@ -188,20 +192,53 @@ erDiagram
         varchar message_id "WhatsApp message ID for reaction tracking"
         timestamptz created_at "Creation timestamp"
     }
+
+    task_attachments {
+        serial id PK "Auto-increment ID"
+        int task_id FK "Foreign key to tasks(id)"
+        varchar user_jid FK "Owner WhatsApp JID"
+        varchar file_name "Original or sanitized file name"
+        varchar file_type "image | document"
+        varchar mime_type "image/jpeg | application/pdf"
+        int file_size "File size in bytes"
+        text storage_path "Sandboxed path on disk"
+        varchar sha256_hash "SHA-256 binary checksum"
+        varchar safety_status "safe | suspicious | rejected"
+        text ocr_extracted_text "Text extracted via Gemini Vision OCR"
+        timestamptz created_at "Timestamp"
+    }
+
+    task_history {
+        serial id PK "Auto-increment ID"
+        int task_id FK "Foreign key to tasks(id)"
+        varchar user_jid FK "User who triggered the modification"
+        varchar change_type "create | reschedule | rename | resolve | cancel | attachment"
+        varchar field_changed "task | deadline | status | attachments"
+        text old_value "Previous value"
+        text new_value "Updated value"
+        text raw_input "User's raw command or reply text"
+        timestamptz created_at "Timestamp"
+    }
 ```
 
 ---
 
 ## 5. Security & Isolation Architecture
 
-1. **Network Attack Surface**:
+1. **Multi-Layer Media & Attachment Security Pipeline**:
+   - **Layer 1: Magic Bytes / Binary Gatekeeper (`file-type`)**: Validates real file signature against whitelist (`image/jpeg`, `image/png`, `image/webp`, `application/pdf`). Explicitly blocks executable binaries and text vectors like SVG/XML (XSS vectors). Enforces size caps (5MB images, 10MB PDFs).
+   - **Layer 2: Content Disarming & Reconstruction (CDR) with Sharp**: Strips dangerous hidden chunks, auto-orients, and sanitizes images into pure, normalized JPEGs, neutralizing polyglots and steganography.
+   - **Layer 3: Gemini Multimodal AI Screening & OCR**: Inspects visual content for fraudulent bank transfers, scam/phishing indicators, and malicious links before acceptance. Performs OCR extraction on physical invoices and notes.
+   - **Layer 4: S3 Object Storage (Rust FS) & Sandboxed Local Storage**: Mendukung S3-compatible Object Storage (container Rust FS / MinIO via internal Docker network) serta penyimpanan lokal terisolasi (`./storage/attachments/YYYY/MM/UUID.ext`) dengan izin akses ketat (`0o600`).
+   - **Direct Media Reminder Dispatcher**: Saat interval pengingat tiba, jika tugas memiliki lampiran gambar atau dokumen, bot mengambil buffer file dari S3 Rust FS (atau local storage) dan mengirimkannya langsung ke WhatsApp dengan teks pengingat ramah sebagai caption. ID pesan yang terkirim dihubungkan ke `task_messages` sehingga reaksi emoji (✅ / ❌) pada balon media berfungsi penuh.
+2. **Network Attack Surface**:
    - Zero inbound listening HTTP ports. Baileys connects exclusively via an outbound WebSocket directly to WhatsApp infrastructure (`*.whatsapp.net`).
    - The bot server is immune to internet-wide port scans, external HTTP exploits, or unauthorized webhooks.
-2. **Database Isolation**:
+3. **Database Isolation**:
    - PostgreSQL connections use credentialed TCP (`DATABASE_URL`).
    - Can run entirely inside Docker network bridges or bind strictly to `localhost:5432`.
-3. **Session Credentials**:
+4. **Session Credentials**:
    - Signal keys, pre-keys, and tokens are stored in the local `./auth_info` volume, guarded with restricted file permissions, and never transmitted over external networks.
-4. **Access Control**:
+5. **Access Control**:
    - Incoming messages from unauthorized JIDs are immediately dropped if `is_allowed = false` in `user_settings`.
    - The bot ignores group chats (`@g.us`) and status broadcasts (`status@broadcast`) to prevent spam or token exhaustion.

@@ -9,11 +9,27 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
 - 📥 **Pencatatan Tugas Cerdas**: Cukup kirim atau *forward* pesan ke bot, contoh:
   - *"Besok jam 2 siang ada jadwal meeting dengan klien"*
   - *"Ingatkan bayar tagihan listrik nanti malam jam 8"*
+- 📎 **Lampiran Dokumen & Gambar Aman (Multi-layer Security)**:
+  - Dukungan melampirkan foto (JPG, PNG, WebP) atau dokumen (PDF).
+  - **Layer 1 (Magic Bytes Inspection):** Memverifikasi signature biner file via `file-type`, menolak format berbahaya seperti SVG/XML (vektor XSS) dan executable.
+  - **Layer 2 (Content Disarming & Reconstruction - CDR):** Sanitasi gambar via `sharp` yang menghapus metadata sensitif EXIF/GPS dan menormalkan pixel.
+  - **Layer 3 (Multimodal AI Screening & OCR):** Analisis cerdas Gemini Vision untuk mendeteksi potensi scam/phishing/manipulasi bukti transfer serta ekstraksi teks otomatis (OCR).
+  - **Layer 4 (S3 Rust FS & Sandboxed Storage):** Terintegrasi langsung dengan S3-compatible Object Storage (Rust FS / MinIO) antar-container Docker maupun storage lokal terisolasi berizin `0o600`.
+  - **Direct Media Reminder:** Ketika jadwal pengingat tugas berbunyi di WhatsApp, bot langsung mengirimkan foto/PDF secara otomatis dengan teks pengingat sebagai caption!
+- 🌿 **Hierarchical / Nested Tasks (Tugas Induk & Sub-tugas)**:
+  - Buat sub-tugas mandiri di bawah tugas utama, masing-masing dengan deadline dan pengingat sendiri.
+  - Tampilan daftar pohon rapi pada `/list` dan `detail <ID>`.
+  - Pembatalan kaskade (*cascade cancellation*) otomatis saat tugas induk dibatalkan.
+- 🔄 **Pengubahan Jadwal & Judul Fleksibel (Quoted Reply)**:
+  - Cukup balas (quote) pesan pengingat/tugas dengan `ubah waktu: <waktu baru>` atau `ubah tugas: <judul baru>`.
+  - Tambah sub-tugas cukup dengan membalas `subtask: <nama & waktu>`.
+- 📜 **Audit Trail & Riwayat Perubahan (`task_history`)**:
+  - Seluruh mutasi (pembuatan, perubahan jadwal, ganti judul, lampiran, penyelesaian) dicatat di PostgreSQL dan dapat dicek via `riwayat <ID>`.
 - 🧠 **NLP Bahasa Indonesia (3-Tier Resilient Architecture)**:
-  1. **Tier 1 (Cloud)**: Google Gemini 1.5 Flash untuk ekstraksi terstruktur nama tugas & waktu dalam bahasa gaul / santai Indonesia.
-  2. **Tier 2 (Host CLI Fallback)**: **Antigravity CLI** (`agy`) yang berjalan di host server via bridge HTTP port 7860 jika API Gemini limit atau bermasalah.
+  1. **Tier 1 (Cloud)**: Google Gemini Flash dengan kesadaran konteks waktu dinamis.
+  2. **Tier 2 (Host CLI Fallback)**: **Antigravity CLI** (`agy`) bridge port 7860 jika API Gemini limit atau bermasalah.
   3. **Tier 3 (Local Offline Fallback)**: Mesin regex komprehensif Bahasa Indonesia + `chrono-node` dengan kesadaran timezone (WIB/WITA/WIT). Bot **tidak pernah drop pesan atau crash** meski tanpa internet ke Google AI!
-- ⏰ **Pengingat Adaptif**: Otomatis mengirimkan pengingat 30 menit atau 15 menit sebelum deadline, serta peringatan susulan jika tugas melewati batas waktu (*overdue*).
+- ⏰ **Pengingat Ramah & Adaptif**: Otomatis mengirimkan pengingat 30 menit atau 15 menit sebelum deadline dengan nada bersahabat (bukan gaya penagih hutang).
 - ✅ **Penyelesaian Fleksibel**: Cukup beri reaksi emoji **✅** di balon pesan bot WhatsApp, balas pesan dengan emoji ✅, atau ketik `selesai <ID>`.
 - 🎉 **Afirmasi Positif Dinamis**: Merayakan setiap tugas yang selesai dengan pujian gaul dan memotivasi dari AI.
 - 🐘 **PostgreSQL & Drizzle ORM**: Skema database yang scalable, terstruktur, dan mudah dikelola melalui pgAdmin atau TablePlus.
@@ -91,17 +107,32 @@ Saat pertama kali dijalankan, **QR Code** akan muncul di terminal. Pindai (scan)
 
 ---
 
-## 💬 Perintah & Panduan Chat WhatsApp
+## 💬 Perintah & Panduan Interaksi WhatsApp
 
-| Perintah | Deskripsi |
-| :--- | :--- |
-| `Halo`, `p`, dll | Sapaan santai (tidak akan memicu pencatatan tugas palsu) |
-| `<Pesan Tugas>` | Mencatat tugas otomatis (misal: *"Kirim laporan besok jam 14:00"*) |
-| `/list` atau `daftar` | Menampilkan seluruh tugas aktif yang belum selesai |
-| `/selesai <ID>` | Menandai tugas telah selesai dan memicu afirmasi positif |
-| `/batal <ID>` | Membatalkan/menghapus tugas |
-| `Reaksi ✅` | Menandai selesai dengan mengklik reaksi emoji ✅ pada pesan bot |
-| `/help` atau `bantuan` | Menampilkan pesan panduan ramah pengguna |
+### 📌 1. Format Perintah Langsung
+| Perintah | Deskripsi | Contoh |
+| :--- | :--- | :--- |
+| `<Pesan Tugas>` | Mencatat tugas baru otomatis | *"Besok jam 2 siang meeting dengan vendor"* |
+| `<Kirim Foto / PDF>` | Lampirkan file (disaring & di-OCR aman) | Kirim dokumen proposal + caption *"Review proposal lusa jam 10"* |
+| `/list` atau `daftar` | Menampilkan seluruh tugas aktif & pohon sub-tugas | `daftar` |
+| `detail <ID>` / `tree <ID>` | Melihat detail tugas, lampiran, dan daftar sub-tugas | `detail 5` |
+| `riwayat <ID>` | Melihat audit trail / riwayat perubahan tugas | `riwayat 5` |
+| `subtask <ID> <teks>` | Menambahkan sub-tugas langsung ke ID tugas utama | `subtask 5 Siapkan materi slide jam 9 pagi` |
+| `/selesai <ID>` | Menandai tugas telah selesai & afirmasi positif | `selesai 5` |
+| `/batal <ID>` | Membatalkan tugas beserta sub-tugas aktifnya | `batal 5` |
+| `/help` atau `bantuan` | Menampilkan panduan lengkap interaksi | `bantuan` |
+
+### 🔄 2. Format Balas Pesan (Quoted Reply)
+Pengguna dapat langsung mengutip (quote/reply) balon pesan bot untuk melakukan perubahan cepat:
+- **Mengubah Waktu / Jadwal**:
+  > Balas pesan tugas: `ubah waktu: besok jam 15:00` atau `reschedule: lusa jam 10 pagi`
+  > *(Sistem otomatis menghitung ulang alarm pengingat dan me-reset status pengingat)*
+- **Mengubah Judul / Nama Tugas**:
+  > Balas pesan tugas: `ubah tugas: Revisi Pitch Deck Presentasi`
+- **Menambahkan Sub-Tugas**:
+  > Balas pesan tugas: `subtask: Kirim tautan zoom besok jam 09:30`
+- **Menyelesaikan / Membatalkan Cepat**:
+  > Beri reaksi emoji **✅** (selesai) atau **❌** (batal) pada pesan pengingat, atau balas pesan dengan teks `selesai` / `batal`.
 
 ---
 
@@ -155,7 +186,17 @@ GEMINI_API_KEY=your_gemini_api_key
 OWNER_NUMBER=628123456789
 TIMEZONE=Asia/Jakarta
 DEFAULT_REMINDER_LEAD_MINUTES=30
+
+# Konfigurasi Storage Lampiran (S3 Rust FS / MinIO)
+STORAGE_DRIVER=s3
+S3_ENDPOINT=http://rust-s3:9000
+S3_BUCKET=todo-attachments
+S3_ACCESS_KEY=rustfsadmin_S3rver5
+S3_SECRET_KEY=5zbrhw9z3mep4bkp_53cRets
+S3_REGION=us-east-1
+S3_FORCE_PATH_STYLE=true
 ```
+> **Tips S3 Rust FS di Dokploy / Docker Network:** Karena container bot dan container S3 Rust Anda berada di mesin VPS yang sama dalam Docker network, Anda cukup menggunakan hostname container S3 (misal: `http://rust-s3:9000`). Latensi akses file instan (<5ms) dan data 100% aman di server sendiri.
 > **Tips Database di Dokploy:** Jika Anda menggunakan fitur *PostgreSQL Database* bawaan Dokploy, Anda bisa memasukkan koneksi internal Docker network Dokploy secara langsung ke `DATABASE_URL`.
 
 ### 4. Deploy & Scan QR Code

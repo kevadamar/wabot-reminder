@@ -9,10 +9,25 @@ import {
   listActiveTasks,
   updateTaskDeadline,
   getLatestPendingDeadlineTask,
+  rescheduleTask,
+  renameTask,
+  createSubtask,
+  getTaskTree,
+  getTaskHistory,
+  addAttachmentToTask,
+  getTaskAttachments,
 } from '../../services/task.js';
 import { parseTaskMessage, parseLocalTask } from '../../services/nlp.js';
 import { calculateRemindAt } from '../../services/reminder.js';
 import { generateAffirmation } from '../../services/affirmation.js';
+import {
+  validateMediaBuffer,
+  sanitizeImageBuffer,
+  sanitizeDocumentBuffer,
+  screenAndExtractImageWithAI,
+  saveAttachmentToStorage,
+} from '../../services/media.js';
+import { jidNormalizedUser, downloadMediaMessage } from '@whiskeysockets/baileys';
 
 export function formatDateTime(date: Date, timezone = 'Asia/Jakarta'): string {
   try {
@@ -30,30 +45,66 @@ export function formatDateTime(date: Date, timezone = 'Asia/Jakarta'): string {
   }
 }
 
+export const TASK_FOOTER_NOTE = `\n\n💡 _Tips: Ingin ubah jadwal, judul, atau tambah sub-tugas? Cukup balas pesan ini:_\n• *ubah waktu: <waktu baru>* (cth: _ubah waktu: besok jam 3 sore_)\n• *ubah tugas: <nama baru>* (cth: _ubah tugas: Presentasi Q3_)\n• *subtask: <sub-tugas & waktu>* (cth: _subtask: Cetak materi jam 9 pagi_)`;
+
 const HELP_MESSAGE = `Halo! 👋 Aku asisten pengingat tugasmu. Kamu bisa santai ngobrol atau gunakan panduan ringkas ini:
 
 📌 *Mencatat Tugas Baru:*
-Ketik langsung tugasmu seperti biasa, contoh:
-• _"Besok jam 2 siang ada jadwal meeting dengan klien"_
-• _"Ingatkan beli obat nanti malam jam 8"_
-• Atau langsung *teruskan (forward)* pesan chat penting ke sini!
+• Ketik langsung tugasmu: _"Besok jam 2 siang meeting dengan klien"_
+• Atau kirim *foto / dokumen (PDF)* dengan caption tugas!
+• Atau *teruskan (forward)* pesan penting ke sini.
 
-📋 *Mengecek Tugas:*
-• Ketik *daftar* atau */list* untuk melihat semua tugas yang belum selesai.
+🔄 *Mengubah Jadwal & Judul (Reply):*
+Balas langsung ke pesan tugas yang ingin diubah:
+• *ubah waktu: <waktu baru>* (cth: _ubah waktu: besok jam 15:00_)
+• *ubah tugas: <judul baru>* (cth: _ubah tugas: Presentasi Pitch Deck_)
+
+🌿 *Sub-Tugas (Tugas Bersarang):*
+• Balas pesan tugas: *subtask: <nama sub-tugas & waktu>* (cth: _subtask: Siapkan materi slide besok jam 9 pagi_)
+• Atau via perintah: *subtask <ID_tugas> <nama & waktu>*
+• Sub-tugas memiliki pengingat tersendiri!
+
+📋 *Mengecek & Melihat Struktur:*
+• *daftar* atau */list* : Melihat semua tugas aktif & sub-tugas
+• *tree <ID>* atau *detail <ID>* : Melihat struktur pohon tugas & lampiran
+• *riwayat <ID>* : Melihat riwayat perubahan/audit tugas
 
 ✅ *Menyelesaikan Tugas:*
 • Beri reaksi emoji ✅ pada pesan pengingat, ATAU
 • Balas pesan pengingat dengan emoji ✅ / ketik *selesai*, ATAU
-• Ketik *selesai <nomor_tugas>* (contoh: _selesai 2_)
+• Ketik *selesai <nomor_tugas>* (cth: _selesai 2_)
 
 ❌ *Membatalkan Tugas:*
 • Beri reaksi emoji ❌ pada pesan pengingat, ATAU
 • Balas pesan pengingat dengan emoji ❌ / ketik *batal*, ATAU
-• Ketik *batal <nomor_tugas>* (contoh: _batal 2_)
+• Ketik *batal <nomor_tugas>* (cth: _batal 2_)
 
 Kapan pun kamu butuh bantuan, cukup ketik *help* atau *bantuan* ya! ✨`;
 
-import { jidNormalizedUser } from '@whiskeysockets/baileys';
+/**
+ * Formats a single task history item into human-readable timeline text
+ */
+function formatHistoryAction(item: any, timezone: string): string {
+  const dateStr = formatDateTime(new Date(item.createdAt), timezone);
+  switch (item.changeType) {
+    case 'create':
+      return `• [${dateStr}] ➕ Tugas dibuat: "${item.newValue}"`;
+    case 'reschedule': {
+      const newDate = item.newValue ? formatDateTime(new Date(item.newValue), timezone) : 'tanpa waktu';
+      return `• [${dateStr}] 🔄 Jadwal diubah ke: ${newDate}`;
+    }
+    case 'rename':
+      return `• [${dateStr}] ✏️ Judul diubah ke: "${item.newValue}"`;
+    case 'resolve':
+      return `• [${dateStr}] ✅ Tugas diselesaikan`;
+    case 'cancel':
+      return `• [${dateStr}] ❌ Tugas dibatalkan`;
+    case 'attachment':
+      return `• [${dateStr}] 📎 Lampiran ditambahkan: "${item.newValue || 'file'}"`;
+    default:
+      return `• [${dateStr}] ℹ️ Perubahan ${item.changeType}: ${item.newValue || ''}`;
+  }
+}
 
 /**
  * Returns dynamic contextual time suggestions based on current hour in user's timezone.
@@ -105,18 +156,39 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   // Normalize JID (strips device ID like :12@s.whatsapp.net to 628xxx@s.whatsapp.net)
   const remoteJid = jidNormalizedUser(rawJid);
 
+  const isImage = Boolean(msg.message.imageMessage);
+  const isDocument = Boolean(
+    msg.message.documentMessage ||
+    msg.message.documentWithCaptionMessage?.message?.documentMessage
+  );
+
+  const docFileName =
+    msg.message.documentMessage?.fileName ||
+    msg.message.documentWithCaptionMessage?.message?.documentMessage?.fileName ||
+    null;
+
+  const caption =
+    msg.message.imageMessage?.caption ||
+    msg.message.documentMessage?.caption ||
+    msg.message.documentWithCaptionMessage?.message?.documentMessage?.caption ||
+    '';
+
   const text =
     msg.message.conversation ||
     msg.message.extendedTextMessage?.text ||
-    msg.message.imageMessage?.caption ||
+    caption ||
     '';
 
   const trimmedText = text.trim();
-  if (!trimmedText) return;
 
-  console.log(`📩 [Pesan Masuk] Dari: ${remoteJid} (Raw: ${rawJid}) | Teks: "${trimmedText}"`);
+  // If there's neither text nor media, ignore
+  if (!trimmedText && !isImage && !isDocument) return;
 
-  const contextInfo = msg.message.extendedTextMessage?.contextInfo;
+  console.log(`📩 [Pesan Masuk] Dari: ${remoteJid} (Raw: ${rawJid}) | Teks: "${trimmedText}" | Media: ${isImage ? 'image' : isDocument ? 'doc' : 'none'}`);
+
+  const contextInfo = msg.message.extendedTextMessage?.contextInfo ||
+    msg.message.imageMessage?.contextInfo ||
+    msg.message.documentMessage?.contextInfo;
   const isForwarded = Boolean(contextInfo?.isForwarded);
   const stanzaId = contextInfo?.stanzaId;
 
@@ -130,14 +202,192 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     return;
   }
 
-  // 2. Help command (includes /help, help, halp, bantuan, menu)
+  // 2. Handle Media / Attachments (Images & Documents)
+  if (isImage || isDocument) {
+    let buffer: Buffer;
+    try {
+      buffer = (await downloadMediaMessage(msg, 'buffer', {})) as Buffer;
+    } catch (err: any) {
+      console.error(`[Media] Gagal mengunduh media: ${err?.message || err}`);
+      await sock.sendMessage(remoteJid, {
+        text: '⚠️ Gagal mengunduh file media dari WhatsApp. Silakan coba kirim ulang.',
+      });
+      return;
+    }
+
+    const claimedMime = msg.message.imageMessage?.mimetype || msg.message.documentMessage?.mimetype || undefined;
+    const validation = await validateMediaBuffer(buffer, claimedMime);
+    if (!validation.isValid) {
+      await sock.sendMessage(remoteJid, {
+        text: `⚠️ *Lampiran Ditolak:*\n${validation.error}`,
+      });
+      return;
+    }
+
+    let sanitized;
+    let aiResult: any = null;
+
+    if (validation.fileType === 'image') {
+      try {
+        sanitized = await sanitizeImageBuffer(buffer);
+      } catch (err: any) {
+        await sock.sendMessage(remoteJid, {
+          text: '⚠️ File gambar korup atau gagal diproses oleh sistem sanitasi.',
+        });
+        return;
+      }
+
+      // Layer 4: Multimodal AI screening (scam/phishing & OCR)
+      aiResult = await screenAndExtractImageWithAI(sanitized.buffer, sanitized.mimeType);
+      if (aiResult.isSuspicious) {
+        console.warn(`🚨 [Keamanan] Gambar mencurigakan dari ${remoteJid}: ${aiResult.safetyReason}`);
+        await sock.sendMessage(remoteJid, {
+          text: `🚨 *Peringatan Keamanan!*\nGambar terdeteksi mencurigakan atau berpotensi bahaya/penipuan: _${aiResult.safetyReason || 'Indikasi phishing/scam'}_.\n\nFile ditolak dan tidak disimpan demi keamananmu.`,
+        });
+        return;
+      }
+    } else {
+      sanitized = sanitizeDocumentBuffer(
+        buffer,
+        validation.detectedMime || 'application/pdf',
+        validation.detectedExt || 'pdf'
+      );
+    }
+
+    // Save to S3 (Rust FS) or sandboxed local storage
+    const storagePath = await saveAttachmentToStorage(sanitized.buffer, sanitized.extension, sanitized.mimeType);
+    const fileName =
+      docFileName || (validation.fileType === 'image' ? `foto_${Date.now()}.jpg` : `dokumen_${Date.now()}.pdf`);
+
+    // Case A: Reply to an existing task
+    let attachedTask = null;
+    if (stanzaId) {
+      attachedTask = await findTaskByMessageId(db, stanzaId);
+    }
+
+    if (attachedTask) {
+      await addAttachmentToTask(db, {
+        taskId: attachedTask.id,
+        userJid: remoteJid,
+        fileName,
+        fileType: validation.fileType!,
+        mimeType: sanitized.mimeType,
+        fileSize: sanitized.fileSize,
+        storagePath,
+        sha256Hash: sanitized.sha256Hash,
+        safetyStatus: 'safe',
+        ocrExtractedText: aiResult?.ocrText || null,
+      });
+
+      await sock.sendMessage(remoteJid, {
+        text: `📎 *Lampiran Berhasil Disimpan!*\nFile *${fileName}* telah dilampirkan ke tugas:\n📌 [ID: ${attachedTask.id}] *${attachedTask.task}*`,
+      });
+      return;
+    }
+
+    // Case B: Caption contains task instructions or OCR found a task
+    let taskText = caption.trim();
+    if (!taskText && aiResult?.isTask && aiResult.taskTitle) {
+      taskText = aiResult.taskTitle;
+    }
+
+    if (taskText) {
+      const nlpResult = await parseTaskMessage(taskText, {
+        now: new Date(),
+        timezone: user.timezone,
+        isForwarded,
+      });
+
+      const deadline = nlpResult.deadline;
+      const remindAt = deadline ? calculateRemindAt(deadline, { leadMinutes: user.leadReminderMinutes }) : null;
+
+      const created = await createTask(db, {
+        userJid: remoteJid,
+        task: nlpResult.taskTitle || taskText,
+        deadline,
+        remindAt,
+        status: deadline ? 'pending' : 'pending_deadline',
+      });
+
+      await addAttachmentToTask(db, {
+        taskId: created.id,
+        userJid: remoteJid,
+        fileName,
+        fileType: validation.fileType!,
+        mimeType: sanitized.mimeType,
+        fileSize: sanitized.fileSize,
+        storagePath,
+        sha256Hash: sanitized.sha256Hash,
+        safetyStatus: 'safe',
+        ocrExtractedText: aiResult?.ocrText || null,
+      });
+
+      if (deadline) {
+        const deadlineStr = formatDateTime(deadline, user.timezone);
+        const reply = await sock.sendMessage(remoteJid, {
+          text: `✅ *Tugas & Lampiran Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*\n📎 Lampiran: *${fileName}*${TASK_FOOTER_NOTE}`,
+        });
+        if (reply?.key?.id) {
+          await linkTaskMessage(db, created.id, reply.key.id);
+        }
+      } else {
+        const suggestions = getDynamicTimeSuggestions(user.timezone, new Date());
+        const suggestionList = suggestions.map((s, idx) => `${['1️⃣', '2️⃣', '3️⃣'][idx]} ${s.label}`).join('\n');
+        const reply = await sock.sendMessage(remoteJid, {
+          text: `📝 *Tugas & Lampiran Siap Dicatat!*\n"${created.task}"\n📎 Lampiran: *${fileName}*\n\nBiar tidak terlewat, kapan sebaiknya aku ingatkan tugas ini? Kamu bisa balas pesan ini dengan waktu yang pas, atau pilih opsi:\n${suggestionList}${TASK_FOOTER_NOTE}`,
+        });
+        if (reply?.key?.id) {
+          await linkTaskMessage(db, created.id, reply.key.id);
+        }
+      }
+      return;
+    }
+
+    // Case C: File sent without caption and no AI task detected
+    const genericTitle =
+      validation.fileType === 'image'
+        ? (aiResult?.ocrText ? `Review foto: ${aiResult.ocrText.slice(0, 40)}` : 'Review lampiran foto')
+        : `Review dokumen: ${fileName}`;
+
+    const created = await createTask(db, {
+      userJid: remoteJid,
+      task: genericTitle,
+      status: 'pending_deadline',
+    });
+
+    await addAttachmentToTask(db, {
+      taskId: created.id,
+      userJid: remoteJid,
+      fileName,
+      fileType: validation.fileType!,
+      mimeType: sanitized.mimeType,
+      fileSize: sanitized.fileSize,
+      storagePath,
+      sha256Hash: sanitized.sha256Hash,
+      safetyStatus: 'safe',
+      ocrExtractedText: aiResult?.ocrText || null,
+    });
+
+    const suggestions = getDynamicTimeSuggestions(user.timezone, new Date());
+    const suggestionList = suggestions.map((s, idx) => `${['1️⃣', '2️⃣', '3️⃣'][idx]} ${s.label}`).join('\n');
+
+    const reply = await sock.sendMessage(remoteJid, {
+      text: `📎 *Lampiran Diterima!*\n"${created.task}"\n\nKapan sebaiknya kamu diingatkan untuk memeriksa lampiran ini?\n${suggestionList}${TASK_FOOTER_NOTE}`,
+    });
+    if (reply?.key?.id) {
+      await linkTaskMessage(db, created.id, reply.key.id);
+    }
+    return;
+  }
+
+  // 3. Help command
   if (/^(\/help|help|halp|bantuan|menu)$/i.test(trimmedText)) {
     console.log(`ℹ️ [Command] Menampilkan panduan bantuan untuk ${remoteJid}`);
     await sock.sendMessage(remoteJid, { text: HELP_MESSAGE });
     return;
   }
 
-  // 3. List active tasks
+  // 4. List active tasks (Hierarchical view)
   if (/^(\/list|list|daftar|daftar tugas|todo)$/i.test(trimmedText)) {
     const activeTasks = await listActiveTasks(db, remoteJid);
     if (activeTasks.length === 0) {
@@ -145,20 +395,157 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       return;
     }
 
-    let reply = '📋 *Daftar Tugas Aktif:*\n\n';
-    activeTasks.forEach((t, idx) => {
-      const deadlineStr = t.deadline
-        ? `⏰ Deadline: ${formatDateTime(new Date(t.deadline), user.timezone)}`
-        : '⏰ Waktu: Belum ditentukan';
-      reply += `${idx + 1}. [ID: ${t.id}] *${t.task}*\n   ${deadlineStr}\n\n`;
+    const rootTasks = activeTasks.filter((t) => !t.parentId);
+    const subtaskMap = new Map<number, typeof activeTasks>();
+    activeTasks.forEach((t) => {
+      if (t.parentId) {
+        const list = subtaskMap.get(t.parentId) || [];
+        list.push(t);
+        subtaskMap.set(t.parentId, list);
+      }
     });
-    reply += 'Ketik *selesai <ID>* untuk menandai selesai.\nKetik *batal <ID>* untuk membatalkan.';
 
+    let reply = '📋 *Daftar Tugas Aktif:*\n\n';
+    let counter = 1;
+
+    for (const t of rootTasks) {
+      const deadlineStr = t.deadline
+        ? `⏰ ${formatDateTime(new Date(t.deadline), user.timezone)}`
+        : '⏰ Waktu: Belum ditentukan';
+      const subtasks = subtaskMap.get(t.id) || [];
+      const subCountBadge = subtasks.length > 0 ? ` (${subtasks.length} sub-tugas)` : '';
+
+      reply += `${counter}. [ID: ${t.id}] *${t.task}*${subCountBadge}\n   ${deadlineStr}\n`;
+
+      if (subtasks.length > 0) {
+        subtasks.forEach((st) => {
+          const stDeadline = st.deadline
+            ? `(⏰ ${formatDateTime(new Date(st.deadline), user.timezone)})`
+            : '';
+          reply += `   └─ [ID: ${st.id}] ⏳ ${st.task} ${stDeadline}\n`;
+        });
+      }
+      reply += '\n';
+      counter++;
+    }
+
+    const orphanSubtasks = activeTasks.filter(
+      (t) => t.parentId && !rootTasks.some((rt) => rt.id === t.parentId)
+    );
+    if (orphanSubtasks.length > 0) {
+      reply += `📌 *Sub-tugas Mandiri:*\n`;
+      orphanSubtasks.forEach((st) => {
+        const stDeadline = st.deadline
+          ? `(⏰ ${formatDateTime(new Date(st.deadline), user.timezone)})`
+          : '';
+        reply += `• [ID: ${st.id}] ⏳ ${st.task} ${stDeadline}\n`;
+      });
+      reply += '\n';
+    }
+
+    reply += 'Ketik *selesai <ID>* untuk menandai selesai.\nKetik *detail <ID>* untuk struktur pohon.\nKetik *riwayat <ID>* untuk audit perubahan.';
     await sock.sendMessage(remoteJid, { text: reply.trim() });
     return;
   }
 
-  // 4. Resolve task via command
+  // 5. History / Riwayat command
+  const historyMatch = trimmedText.match(/^(?:riwayat|history)\s+(\d+)$/i);
+  if (historyMatch && historyMatch[1]) {
+    const taskId = parseInt(historyMatch[1], 10);
+    const historyList = await getTaskHistory(db, taskId, remoteJid);
+    if (historyList.length === 0) {
+      await sock.sendMessage(remoteJid, {
+        text: `Tugas ID [${taskId}] tidak ditemukan atau belum memiliki riwayat perubahan.`,
+      });
+      return;
+    }
+
+    let replyText = `📜 *Riwayat Perubahan Tugas [ID: ${taskId}]*\n\n`;
+    replyText += historyList.map((item) => formatHistoryAction(item, user.timezone)).join('\n');
+    await sock.sendMessage(remoteJid, { text: replyText });
+    return;
+  }
+
+  // 6. Tree / Detail command
+  const treeMatch = trimmedText.match(/^(?:tree|detail)\s+(\d+)$/i);
+  if (treeMatch && treeMatch[1]) {
+    const taskId = parseInt(treeMatch[1], 10);
+    const taskTree = await getTaskTree(db, taskId, remoteJid);
+    if (!taskTree) {
+      await sock.sendMessage(remoteJid, { text: `Tugas ID [${taskId}] tidak ditemukan.` });
+      return;
+    }
+
+    const { task: t, subtasks } = taskTree;
+    const attachments = await getTaskAttachments(db, taskId);
+
+    const deadlineStr = t.deadline
+      ? formatDateTime(new Date(t.deadline), user.timezone)
+      : 'Belum ditentukan';
+    const statusEmoji = t.status === 'resolved' ? '✅ Selesai' : t.status === 'cancelled' ? '❌ Dibatalkan' : '⏳ Aktif';
+
+    let replyText = `🌳 *Detail & Struktur Tugas [ID: ${t.id}]*\n\n`;
+    replyText += `📌 *${t.task}*\n`;
+    replyText += `• Status: ${statusEmoji}\n`;
+    replyText += `• Deadline: ${deadlineStr}\n`;
+
+    if (attachments.length > 0) {
+      replyText += `• 📎 Lampiran: ${attachments.length} file (${attachments.map((a) => a.fileName).join(', ')})\n`;
+    }
+
+    if (subtasks.length > 0) {
+      replyText += `\n*Daftar Sub-tugas:*\n`;
+      subtasks.forEach((st, idx) => {
+        const stEmoji = st.status === 'resolved' ? '✅' : st.status === 'cancelled' ? '❌' : '⏳';
+        const stDeadline = st.deadline ? ` (⏰ ${formatDateTime(new Date(st.deadline), user.timezone)})` : '';
+        replyText += `${idx + 1}. [ID: ${st.id}] ${stEmoji} *${st.task}*${stDeadline}\n`;
+      });
+    } else {
+      replyText += `\n_Belum ada sub-tugas._ (Balas pesan tugas ini dengan *subtask: <nama sub-tugas>* untuk menambahkan)`;
+    }
+
+    await sock.sendMessage(remoteJid, { text: replyText.trim() });
+    return;
+  }
+
+  // 7. Direct Subtask command: subtask <ID> <teks>
+  const directSubtaskMatch = trimmedText.match(/^subtask\s+(\d+)\s+(.+)$/i);
+  if (directSubtaskMatch && directSubtaskMatch[1] && directSubtaskMatch[2]) {
+    const parentId = parseInt(directSubtaskMatch[1], 10);
+    const rawSubtask = directSubtaskMatch[2].trim();
+
+    const localParsed = parseLocalTask(rawSubtask, new Date(), user.timezone);
+    const subtaskTitle = localParsed.taskTitle || rawSubtask;
+    const deadline = localParsed.deadline;
+    const remindAt = deadline ? calculateRemindAt(deadline, { leadMinutes: user.leadReminderMinutes }) : null;
+
+    const res = await createSubtask(db, {
+      parentId,
+      userJid: remoteJid,
+      task: subtaskTitle,
+      deadline,
+      remindAt,
+      status: deadline ? 'pending' : 'pending_deadline',
+    });
+
+    if (!res) {
+      await sock.sendMessage(remoteJid, {
+        text: `Tugas utama ID [${parentId}] tidak ditemukan atau kamu tidak memiliki akses.`,
+      });
+      return;
+    }
+
+    const deadlineStr = deadline ? formatDateTime(deadline, user.timezone) : 'Belum ditentukan';
+    const reply = await sock.sendMessage(remoteJid, {
+      text: `🌿 *Sub-Tugas Berhasil Ditambahkan!*\n📌 Tugas Utama: *${res.parentTask.task}*\n└─ 📝 Sub-tugas: [ID: ${res.subtask.id}] *${res.subtask.task}*\n⏰ Deadline: *${deadlineStr}*`,
+    });
+    if (reply?.key?.id) {
+      await linkTaskMessage(db, res.subtask.id, reply.key.id);
+    }
+    return;
+  }
+
+  // 8. Resolve task via command
   const resolveMatch = trimmedText.match(/^(\/selesai|\/done|selesai|done)\s+(\d+)$/i);
   if (resolveMatch && resolveMatch[2]) {
     const taskId = parseInt(resolveMatch[2], 10);
@@ -175,7 +562,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     return;
   }
 
-  // 5. Cancel task via command
+  // 9. Cancel task via command
   const cancelMatch = trimmedText.match(/^(\/batal|\/hapus|batal|hapus)\s+(\d+)$/i);
   if (cancelMatch && cancelMatch[2]) {
     const taskId = parseInt(cancelMatch[2], 10);
@@ -185,11 +572,118 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       return;
     }
 
-    await sock.sendMessage(remoteJid, { text: `❌ Tugas ID [${taskId}] berhasil dibatalkan.` });
+    await sock.sendMessage(remoteJid, { text: `❌ Tugas ID [${taskId}] berhasil dibatalkan beserta sub-tugasnya.` });
     return;
   }
 
-  // 6. Quoted reply with completion (✅) or cancellation (❌)
+  // 10. Quoted reply handlers for Edit (Reschedule & Rename) and Subtasks
+  const rescheduleMatch = trimmedText.match(/^(?:ubah\s*waktu|ganti\s*waktu|reschedule|jadwal\s*ulang)[:\s]+(.+)$/i);
+  const renameMatch = trimmedText.match(/^(?:ubah\s*tugas|ganti\s*tugas|ubah\s*judul|ganti\s*judul|rename)[:\s]+(.+)$/i);
+  const subtaskReplyMatch = trimmedText.match(/^(?:subtask|tambah\s*subtask|anak\s*tugas)[:\s]+(.+)$/i);
+
+  if (rescheduleMatch || renameMatch || subtaskReplyMatch) {
+    let targetTask = null;
+    if (stanzaId) {
+      targetTask = await findTaskByMessageId(db, stanzaId);
+    }
+    if (!targetTask) {
+      const activeList = await listActiveTasks(db, remoteJid);
+      if (activeList.length === 1 && activeList[0]) {
+        targetTask = activeList[0];
+      }
+    }
+
+    if (!targetTask) {
+      await sock.sendMessage(remoteJid, {
+        text: '⚠️ Tidak menemukan tugas yang ingin diubah. Balas (quote) pesan tugas terkait atau gunakan perintah spesifik.',
+      });
+      return;
+    }
+
+    // A. Reschedule Task
+    if (rescheduleMatch && rescheduleMatch[1]) {
+      const timeStr = rescheduleMatch[1].trim();
+      const localParsed = parseLocalTask(timeStr, new Date(), user.timezone);
+
+      let newDeadline = localParsed.deadline;
+      if (!newDeadline) {
+        const nlp = await parseTaskMessage(timeStr, { now: new Date(), timezone: user.timezone });
+        newDeadline = nlp.deadline;
+      }
+
+      if (!newDeadline) {
+        await sock.sendMessage(remoteJid, {
+          text: `⚠️ Tidak dapat mengenali waktu "${timeStr}". Coba format seperti: _"besok jam 15:00"_ atau _"hari ini jam 20:00"_.`,
+        });
+        return;
+      }
+
+      const res = await rescheduleTask(db, {
+        taskId: targetTask.id,
+        userJid: remoteJid,
+        newDeadline,
+        leadMinutes: user.leadReminderMinutes,
+        rawInput: trimmedText,
+      });
+
+      if (res) {
+        const deadlineStr = formatDateTime(newDeadline, user.timezone);
+        await sock.sendMessage(remoteJid, {
+          text: `🔄 *Jadwal Berhasil Diperbarui!*\n📝 Tugas: *${targetTask.task}*\n⏰ Waktu baru: *${deadlineStr}*\n\nPengingat otomatis telah disesuaikan kembali. ✨`,
+        });
+        return;
+      }
+    }
+
+    // B. Rename Task
+    if (renameMatch && renameMatch[1]) {
+      const newTitle = renameMatch[1].trim();
+      const res = await renameTask(db, {
+        taskId: targetTask.id,
+        userJid: remoteJid,
+        newTitle,
+        rawInput: trimmedText,
+      });
+
+      if (res) {
+        await sock.sendMessage(remoteJid, {
+          text: `✏️ *Nama Tugas Berhasil Diperbarui!*\n📝 Judul baru: *${newTitle}*`,
+        });
+        return;
+      }
+    }
+
+    // C. Add Subtask via Reply
+    if (subtaskReplyMatch && subtaskReplyMatch[1]) {
+      const rawSubtask = subtaskReplyMatch[1].trim();
+      const localParsed = parseLocalTask(rawSubtask, new Date(), user.timezone);
+      const subtaskTitle = localParsed.taskTitle || rawSubtask;
+      const deadline = localParsed.deadline;
+      const remindAt = deadline ? calculateRemindAt(deadline, { leadMinutes: user.leadReminderMinutes }) : null;
+
+      const res = await createSubtask(db, {
+        parentId: targetTask.id,
+        userJid: remoteJid,
+        task: subtaskTitle,
+        deadline,
+        remindAt,
+        status: deadline ? 'pending' : 'pending_deadline',
+      });
+
+      if (res) {
+        const deadlineStr = deadline ? formatDateTime(deadline, user.timezone) : 'Belum ditentukan';
+        const reply = await sock.sendMessage(remoteJid, {
+          text: `🌿 *Sub-Tugas Berhasil Ditambahkan!*\n📌 Tugas Utama: *${res.parentTask.task}*\n└─ 📝 Sub-tugas: [ID: ${res.subtask.id}] *${res.subtask.task}*\n⏰ Deadline: *${deadlineStr}*`,
+        });
+        if (reply?.key?.id) {
+          await linkTaskMessage(db, res.subtask.id, reply.key.id);
+        }
+        return;
+      }
+    }
+  }
+
+  // 11. Quoted reply with completion (✅) or cancellation (❌)
   const isDoneReply =
     ['✅', '✔️', '☑️', '👍'].includes(trimmedText) || /^(selesai|done|\/selesai|\/done)$/i.test(trimmedText);
   const isCancelReply =
@@ -229,7 +723,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     }
   }
 
-  // 7. Check if user is replying with a deadline for an existing pending_deadline task
+  // 12. Check if user is replying with a deadline for an existing pending_deadline task
   let pendingTask = null;
   if (stanzaId) {
     const matched = await findTaskByMessageId(db, stanzaId);
@@ -242,7 +736,6 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   }
 
   if (pendingTask) {
-    // Dynamic preset suggestions based on current time
     const suggestions = getDynamicTimeSuggestions(user.timezone, new Date());
     let parsedTimeText = trimmedText;
 
@@ -268,7 +761,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       if (updated) {
         const deadlineStr = formatDateTime(localParsed.deadline, user.timezone);
         const reply = await sock.sendMessage(remoteJid, {
-          text: `✅ *Waktu Disimpan!*\n📝 Tugas: *${updated.task}*\n⏰ Pengingat: *${deadlineStr}*\n\nAku akan ingatkan saat mendekati waktunya. Semangat! ✨`,
+          text: `✅ *Waktu Disimpan!*\n📝 Tugas: *${updated.task}*\n⏰ Pengingat: *${deadlineStr}*\n\nAku akan ingatkan saat mendekati waktunya. Semangat! ✨${TASK_FOOTER_NOTE}`,
         });
         if (reply?.key?.id) {
           await linkTaskMessage(db, updated.id, reply.key.id);
@@ -278,7 +771,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     }
   }
 
-  // 8. Natural Language Ingestion for new task
+  // 13. Natural Language Ingestion for new task
   const nlpResult = await parseTaskMessage(trimmedText, {
     now: new Date(),
     timezone: user.timezone,
@@ -286,7 +779,6 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   });
 
   if (!nlpResult.isTask) {
-    // Reply warmly to greetings so the user knows the bot is active and ready
     if (/^(halo|hai|hey|p|ping|assalamualaikum|pagi|siang|sore|malam|tes|test)\b/i.test(trimmedText)) {
       console.log(`👋 [Sapaan] Membalas salam ramah ke ${remoteJid}`);
       await sock.sendMessage(remoteJid, {
@@ -307,7 +799,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     const suggestionList = suggestions.map((s, idx) => `${['1️⃣', '2️⃣', '3️⃣'][idx]} ${s.label}`).join('\n');
 
     const reply = await sock.sendMessage(remoteJid, {
-      text: `📝 *Tugas Siap Dicatat!*\n"${created.task}"\n\nBiar tidak terlewat, kapan sebaiknya aku ingatkan tugas ini? Kamu bisa balas pesan ini dengan waktu yang pas (contoh: *besok jam 2 siang* atau *1 jam lagi*), atau cukup pilih opsi berikut:\n${suggestionList}`,
+      text: `📝 *Tugas Siap Dicatat!*\n"${created.task}"\n\nBiar tidak terlewat, kapan sebaiknya aku ingatkan tugas ini? Kamu bisa balas pesan ini dengan waktu yang pas (contoh: *besok jam 2 siang* atau *1 jam lagi*), atau cukup pilih opsi berikut:\n${suggestionList}${TASK_FOOTER_NOTE}`,
     });
 
     if (reply?.key?.id) {
@@ -331,7 +823,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
   const deadlineStr = formatDateTime(nlpResult.deadline, user.timezone);
   const reply = await sock.sendMessage(remoteJid, {
-    text: `✅ *Tugas Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*\n\nAku akan ingatkan mendekati waktu tersebut. Semangat!`,
+    text: `✅ *Tugas Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*\n\nAku akan ingatkan mendekati waktu tersebut. Semangat!${TASK_FOOTER_NOTE}`,
   });
 
   if (reply?.key?.id) {
@@ -348,7 +840,6 @@ export async function handleIncomingReaction(sock: any, reactionEvent: any): Pro
       ? reactionEvent.reaction
       : (reactionEvent.reaction?.text || reactionEvent.text || '');
 
-  // If reaction was removed by user, reactionText will be empty string
   if (!reactionText) return;
 
   const messageId = reactionEvent.key?.id;

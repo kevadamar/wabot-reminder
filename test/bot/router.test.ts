@@ -54,7 +54,7 @@ describe('Seam 5: Message & Reaction Router', () => {
 
     expect(sentMessages.length).toBe(1);
     expect(sentMessages[0]).toContain('Mencatat Tugas Baru');
-    expect(sentMessages[0]).toContain('Mengecek Tugas');
+    expect(sentMessages[0]).toContain('Mengecek');
   });
 
   it('should create task when allowed user sends a task', async () => {
@@ -203,6 +203,172 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(sentMessages[0]).toContain('1️⃣');
     expect(sentMessages[0]).toContain('2️⃣');
     expect(sentMessages[0]).toContain('3️⃣');
+  });
+
+  it('should reschedule task via quoted reply "ubah waktu: ..."', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Presentasi Proyek',
+      deadline: new Date('2026-09-28T10:00:00.000Z'),
+      status: 'pending',
+    });
+
+    const botMsgId = 'BOT_MSG_TASK_PRES';
+    await linkTaskMessage(db, task.id, botMsgId);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_RESCHEDULE_RESP' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_REPLY_RESCHEDULE' },
+      message: {
+        extendedTextMessage: {
+          text: 'ubah waktu: besok jam 15:00',
+          contextInfo: { stanzaId: botMsgId },
+        },
+      },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Jadwal Berhasil Diperbarui!');
+
+    const updatedTask = (await db.select().from(tasks))[0];
+    expect(updatedTask?.deadline).not.toBeNull();
+  });
+
+  it('should rename task via quoted reply "ubah tugas: ..."', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Rapat Tim',
+      status: 'pending',
+    });
+
+    const botMsgId = 'BOT_MSG_TASK_RAPAT';
+    await linkTaskMessage(db, task.id, botMsgId);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_RENAME_RESP' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_REPLY_RENAME' },
+      message: {
+        extendedTextMessage: {
+          text: 'ubah tugas: Rapat Evaluasi Sprint Q3',
+          contextInfo: { stanzaId: botMsgId },
+        },
+      },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Nama Tugas Berhasil Diperbarui!');
+    expect(sentMessages[0]).toContain('Rapat Evaluasi Sprint Q3');
+
+    const updatedTask = (await db.select().from(tasks))[0];
+    expect(updatedTask?.task).toBe('Rapat Evaluasi Sprint Q3');
+  });
+
+  it('should add subtask via quoted reply "subtask: ..."', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const parent = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Persiapan Peluncuran Produk',
+      status: 'pending',
+    });
+
+    const botMsgId = 'BOT_MSG_PARENT_PROD';
+    await linkTaskMessage(db, parent.id, botMsgId);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_SUBTASK_REPLY' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_REPLY_SUBTASK' },
+      message: {
+        extendedTextMessage: {
+          text: 'subtask: Siapkan materi presentasi besok jam 09:00',
+          contextInfo: { stanzaId: botMsgId },
+        },
+      },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Sub-Tugas Berhasil Ditambahkan!');
+    expect(sentMessages[0]).toContain('Persiapan Peluncuran Produk');
+
+    const allTasks = await db.select().from(tasks);
+    expect(allTasks.length).toBe(2);
+    const subtask = allTasks.find((t) => t.parentId === parent.id);
+    expect(subtask).toBeDefined();
+    expect(subtask?.task.toLowerCase()).toContain('materi');
+  });
+
+  it('should display history log with "riwayat <ID>" command', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Tugas Uji Riwayat',
+      status: 'pending',
+    });
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_HIST' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_CMD_HIST' },
+      message: { conversation: `riwayat ${task.id}` },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Riwayat Perubahan Tugas');
+    expect(sentMessages[0]).toContain('Tugas dibuat');
+  });
+
+  it('should display task tree and details with "detail <ID>" command', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const parent = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Tugas Utama Proyek',
+      status: 'pending',
+    });
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_DETAIL' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_CMD_DETAIL' },
+      message: { conversation: `detail ${parent.id}` },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Detail & Struktur Tugas');
+    expect(sentMessages[0]).toContain('Tugas Utama Proyek');
   });
 });
 

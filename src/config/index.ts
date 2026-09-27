@@ -8,5 +8,12 @@ export const config = {
   authDir: process.env.AUTH_DIR || './auth_info',
   logLevel: process.env.LOG_LEVEL || 'info',
   antigravityBridgeUrl: process.env.ANTIGRAVITY_BRIDGE_URL || '',
+  storageDriver: (process.env.STORAGE_DRIVER || 'local') as 'local' | 's3',
+  s3Endpoint: process.env.S3_ENDPOINT || 'http://rust-s3:9000',
+  s3Bucket: process.env.S3_BUCKET || 'todo-attachments',
+  s3AccessKey: process.env.S3_ACCESS_KEY || '',
+  s3SecretKey: process.env.S3_SECRET_KEY || '',
+  s3Region: process.env.S3_REGION || 'us-east-1',
+  s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
 };
 

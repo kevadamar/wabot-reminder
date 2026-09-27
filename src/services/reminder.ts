@@ -135,13 +135,18 @@ const OVERDUE_FALLBACKS = [
  * Strictly avoids cold debt-collection tone like "jatuh tempo" or "telah melewati batas waktu".
  */
 export async function generateReminderMessage(
-  task: { task: string; id?: number; deadline?: Date | string | null },
+  task: { task: string; id?: number; deadline?: Date | string | null; parentId?: number | null },
   isOverdue: boolean,
   deadlineStr: string,
-  customClient?: any
+  customClient?: any,
+  parentTaskTitle?: string | null
 ): Promise<string> {
+  const parentContext = parentTaskTitle
+    ? `Tugas ini adalah bagian dari proyek: "${parentTaskTitle}". Sertakan konteks proyek induk dan sub-tugasnya secara jelas.\n`
+    : '';
+
   const prompt = `Kamu adalah asisten pribadi WhatsApp yang ramah, hangat, perhatian, dan natural.
-Tugas: Buat pesan pengingat ramah untuk tugas: "${task.task}".
+${parentContext}Tugas: Buat pesan pengingat ramah untuk tugas: "${task.task}".
 Waktu target: "${deadlineStr}".
 Status: ${isOverdue ? 'Target waktu sudah terlewat sedikit (tetap santai dan jangan menuntut)' : 'Mendekati waktu target'}.
 
@@ -149,7 +154,7 @@ Panduan Bahasa & Tone of Voice:
 1. Bersahabat, suportif, dan menyenangkan (seperti teman dekat yang mengingatkan).
 2. DILARANG KERAS menggunakan kata kaku bernada menagih hutang, seperti: "jatuh tempo", "peringatan tenggat waktu", "telah melewati batas waktu", "menagih", atau kalimat dingin semacamnya.
 3. DILARANG terdengar seperti template robot AI yang klise.
-4. Tampilkan nama tugas dengan format *"${task.task}"* dan waktu deadline secara natural.
+4. Tampilkan nama tugas dengan format *"${task.task}"* dan waktu deadline secara natural.${parentTaskTitle ? ` Sebutkan juga proyek induknya: *"${parentTaskTitle}"*.` : ''}
 5. Akhiri dengan ajakan santai untuk memberi reaksi ✅ jika sudah beres, atau ❌ jika dibatalkan.
 6. Buat ringkas (maksimal 3-4 baris). Balas langsung dengan isi pesannya saja tanpa tanda kutip di awal/akhir.`;
 
@@ -195,6 +200,11 @@ Panduan Bahasa & Tone of Voice:
   // Tier 3: Curated Warm Fallbacks
   const pool = isOverdue ? OVERDUE_FALLBACKS : REGULAR_FALLBACKS;
   const picked = pool[Math.floor(Math.random() * pool.length)]!;
-  return picked(task.task, deadlineStr);
+  const baseMsg = picked(task.task, deadlineStr);
+
+  if (parentTaskTitle) {
+    return `📁 Proyek: *"${parentTaskTitle}"*\n${baseMsg}`;
+  }
+  return baseMsg;
 }
 

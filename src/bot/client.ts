@@ -11,7 +11,10 @@ import { config } from '../config/index.js';
 import { handleIncomingMessage, handleIncomingReaction, formatDateTime } from './handlers/router.js';
 import { checkAndDispatchReminders, generateReminderMessage } from '../services/reminder.js';
 import { db } from '../db/index.js';
-import { ensureUserSettings } from '../services/task.js';
+import { tasks } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
+import { ensureUserSettings, getTaskAttachments } from '../services/task.js';
+import { getAttachmentBuffer } from '../services/media.js';
 import { ensureAuthDirectory, saveCredentialsSafely } from './auth.js';
 
 const logger = pino({ level: config.logLevel });
@@ -137,8 +140,47 @@ export async function startBot() {
           ? formatDateTime(new Date(task.deadline), user.timezone)
           : '';
 
-        const alertText = await generateReminderMessage(task, isOverdue, deadlineStr);
-        const sent = await sock.sendMessage(task.userJid, { text: alertText });
+        let parentTitle: string | null = null;
+        if (task.parentId) {
+          const parent = await db.select().from(tasks).where(eq(tasks.id, task.parentId)).limit(1);
+          parentTitle = parent[0]?.task ?? null;
+        }
+
+        const alertText = await generateReminderMessage(task, isOverdue, deadlineStr, undefined, parentTitle);
+
+        // Direct Media Reminder: Send media image/PDF with alertText as caption if attachment exists
+        let sent: any = null;
+        try {
+          const attachments = await getTaskAttachments(db, task.id);
+          if (attachments.length > 0 && attachments[0]) {
+            const primary = attachments[0];
+            const buffer = await getAttachmentBuffer(primary.storagePath);
+
+            if (buffer) {
+              if (primary.fileType === 'image') {
+                sent = await sock.sendMessage(task.userJid, {
+                  image: buffer,
+                  caption: alertText,
+                });
+              } else if (primary.fileType === 'document') {
+                sent = await sock.sendMessage(task.userJid, {
+                  document: buffer,
+                  fileName: primary.fileName,
+                  mimetype: primary.mimeType,
+                  caption: alertText,
+                });
+              }
+            }
+          }
+        } catch (mediaErr: any) {
+          logger.warn({ err: mediaErr, taskId: task.id }, 'Gagal mengirim pengingat dengan lampiran media, beralih ke teks');
+        }
+
+        // Fallback to text reminder if no media attachment or media send was skipped
+        if (!sent) {
+          sent = await sock.sendMessage(task.userJid, { text: alertText });
+        }
+
         return sent?.key?.id ?? null;
       });
     } catch (err) {

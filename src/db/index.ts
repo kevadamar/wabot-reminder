@@ -60,6 +60,14 @@ export async function initDb() {
   `;
 
   await client`
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE;
+  `;
+
+  await client`
+    CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
+  `;
+
+  await client`
     CREATE TABLE IF NOT EXISTS task_messages (
       id SERIAL PRIMARY KEY,
       task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -74,6 +82,45 @@ export async function initDb() {
 
   await client`
     CREATE INDEX IF NOT EXISTS idx_task_messages_task_id ON task_messages(task_id);
+  `;
+
+  await client`
+    CREATE TABLE IF NOT EXISTS task_attachments (
+      id SERIAL PRIMARY KEY,
+      task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      user_jid VARCHAR(128) NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      file_type VARCHAR(32) NOT NULL,
+      mime_type VARCHAR(128) NOT NULL,
+      file_size INTEGER NOT NULL,
+      storage_path TEXT NOT NULL,
+      sha256_hash VARCHAR(64) NOT NULL,
+      safety_status VARCHAR(32) DEFAULT 'clean' NOT NULL,
+      ocr_extracted_text TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    );
+  `;
+
+  await client`
+    CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id ON task_attachments(task_id);
+  `;
+
+  await client`
+    CREATE TABLE IF NOT EXISTS task_history (
+      id SERIAL PRIMARY KEY,
+      task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      user_jid VARCHAR(128) NOT NULL,
+      change_type VARCHAR(32) NOT NULL,
+      field_changed VARCHAR(64),
+      old_value TEXT,
+      new_value TEXT,
+      raw_input TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    );
+  `;
+
+  await client`
+    CREATE INDEX IF NOT EXISTS idx_task_history_task_id ON task_history(task_id);
   `;
 }
 

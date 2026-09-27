@@ -36,6 +36,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Baileys session auth
 auth_info/
 
+# Local media storage
+storage/
+
 # Graphify
 graphify-out/
 
