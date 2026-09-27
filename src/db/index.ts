@@ -7,6 +7,23 @@ const client = postgres(config.databaseUrl, {
   max: 10,
   idle_timeout: 20,
   connect_timeout: 10,
+  onnotice: (notice) => {
+    // 42P07 = duplicate_table / duplicate_relation (normal & safe skip caused by IF NOT EXISTS)
+    if (notice.code === '42P07' && notice.message?.includes('already exists, skipping')) {
+      const match = notice.message.match(/relation "([^"]+)" already exists, skipping/);
+      const relName = match ? match[1] : '';
+      if (relName) {
+        console.log(`ℹ️ [DB Schema] Relasi "${relName}" sudah ada dari migrasi sebelumnya (aman dilewati).`);
+      } else {
+        console.log(`ℹ️ [DB Schema] ${notice.message}`);
+      }
+      return;
+    }
+
+    // Pass through any other unexpected notices or warnings so real issues are not masked
+    const severity = notice.severity || 'NOTICE';
+    console.warn(`⚠️ [DB ${severity}] (${notice.code || 'NO_CODE'}): ${notice.message}`);
+  },
 });
 
 export const db = drizzle(client, { schema });
