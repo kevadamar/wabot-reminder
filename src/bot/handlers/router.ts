@@ -43,15 +43,54 @@ Ketik langsung tugasmu seperti biasa, contoh:
 
 ✅ *Menyelesaikan Tugas:*
 • Beri reaksi emoji ✅ pada pesan pengingat, ATAU
-• Balas pesan pengingat dengan emoji ✅, ATAU
+• Balas pesan pengingat dengan emoji ✅ / ketik *selesai*, ATAU
 • Ketik *selesai <nomor_tugas>* (contoh: _selesai 2_)
 
 ❌ *Membatalkan Tugas:*
+• Beri reaksi emoji ❌ pada pesan pengingat, ATAU
+• Balas pesan pengingat dengan emoji ❌ / ketik *batal*, ATAU
 • Ketik *batal <nomor_tugas>* (contoh: _batal 2_)
 
 Kapan pun kamu butuh bantuan, cukup ketik *help* atau *bantuan* ya! ✨`;
 
 import { jidNormalizedUser } from '@whiskeysockets/baileys';
+
+/**
+ * Returns dynamic contextual time suggestions based on current hour in user's timezone.
+ */
+export function getDynamicTimeSuggestions(timezone = 'Asia/Jakarta', now = new Date()): Array<{ label: string; text: string }> {
+  let currentHour = 10;
+  try {
+    const hourStr = now.toLocaleTimeString('en-US', { timeZone: timezone, hour12: false, hour: '2-digit' });
+    currentHour = parseInt(hourStr, 10);
+  } catch {}
+
+  if (currentHour < 12) {
+    return [
+      { label: 'Siang ini (13:00)', text: 'hari ini jam 13:00' },
+      { label: 'Nanti sore (17:00)', text: 'hari ini jam 17:00' },
+      { label: 'Besok pagi (09:00)', text: 'besok jam 09:00' },
+    ];
+  } else if (currentHour < 17) {
+    return [
+      { label: 'Nanti sore (17:00)', text: 'hari ini jam 17:00' },
+      { label: 'Malam ini (20:00)', text: 'hari ini jam 20:00' },
+      { label: 'Besok pagi (09:00)', text: 'besok jam 09:00' },
+    ];
+  } else if (currentHour < 21) {
+    return [
+      { label: 'Malam ini (21:00)', text: 'hari ini jam 21:00' },
+      { label: 'Besok pagi (09:00)', text: 'besok jam 09:00' },
+      { label: 'Besok siang (13:00)', text: 'besok jam 13:00' },
+    ];
+  } else {
+    return [
+      { label: 'Besok pagi (09:00)', text: 'besok jam 09:00' },
+      { label: 'Besok siang (13:00)', text: 'besok jam 13:00' },
+      { label: 'Besok sore (17:00)', text: 'besok jam 17:00' },
+    ];
+  }
+}
 
 /**
  * Handles incoming WhatsApp messages
@@ -150,8 +189,13 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     return;
   }
 
-  // 6. Quoted reply with checkmark (✅)
-  if (trimmedText === '✅' || trimmedText === 'selesai') {
+  // 6. Quoted reply with completion (✅) or cancellation (❌)
+  const isDoneReply =
+    ['✅', '✔️', '☑️', '👍'].includes(trimmedText) || /^(selesai|done|\/selesai|\/done)$/i.test(trimmedText);
+  const isCancelReply =
+    ['❌', '🚫', '🗑️', '✖️'].includes(trimmedText) || /^(batal|cancel|hapus|\/batal|\/cancel|\/hapus)$/i.test(trimmedText);
+
+  if (isDoneReply || isCancelReply) {
     let targetTask = null;
     if (stanzaId) {
       targetTask = await findTaskByMessageId(db, stanzaId);
@@ -163,14 +207,24 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       }
     }
 
-    if (targetTask) {
-      const resolved = await resolveTask(db, targetTask.id, remoteJid);
-      if (resolved) {
-        const affirmation = await generateAffirmation(resolved.task);
-        await sock.sendMessage(remoteJid, {
-          text: `🎉 *Tugas Selesai!* ${resolved.task}\n\n_${affirmation}_`,
-        });
-        return;
+    if (targetTask && targetTask.status !== 'resolved' && targetTask.status !== 'cancelled') {
+      if (isDoneReply) {
+        const resolved = await resolveTask(db, targetTask.id, remoteJid);
+        if (resolved) {
+          const affirmation = await generateAffirmation(resolved.task);
+          await sock.sendMessage(remoteJid, {
+            text: `🎉 *Tugas Selesai!*\n"${resolved.task}"\n\n_${affirmation}_`,
+          });
+          return;
+        }
+      } else if (isCancelReply) {
+        const cancelled = await cancelTask(db, targetTask.id, remoteJid);
+        if (cancelled) {
+          await sock.sendMessage(remoteJid, {
+            text: `🗑️ *Tugas Dibatalkan:*\n"${cancelled.task}"\n\nTugas ini sudah dicoret dari daftar aktifmu.`,
+          });
+          return;
+        }
       }
     }
   }
@@ -188,11 +242,19 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   }
 
   if (pendingTask) {
-    // Quick preset options
+    // Dynamic preset suggestions based on current time
+    const suggestions = getDynamicTimeSuggestions(user.timezone, new Date());
     let parsedTimeText = trimmedText;
-    if (trimmedText === '1' || trimmedText === '1️⃣' || /nanti sore/i.test(trimmedText)) {
+
+    if (trimmedText === '1' || trimmedText === '1️⃣') {
+      parsedTimeText = suggestions[0]?.text || 'hari ini jam 17:00';
+    } else if (trimmedText === '2' || trimmedText === '2️⃣') {
+      parsedTimeText = suggestions[1]?.text || 'besok jam 09:00';
+    } else if (trimmedText === '3' || trimmedText === '3️⃣') {
+      parsedTimeText = suggestions[2]?.text || 'besok jam 13:00';
+    } else if (/nanti sore/i.test(trimmedText)) {
       parsedTimeText = 'hari ini jam 17:00';
-    } else if (trimmedText === '2' || trimmedText === '2️⃣' || /besok pagi/i.test(trimmedText)) {
+    } else if (/besok pagi/i.test(trimmedText)) {
       parsedTimeText = 'besok jam 09:00';
     }
 
@@ -206,7 +268,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       if (updated) {
         const deadlineStr = formatDateTime(localParsed.deadline, user.timezone);
         const reply = await sock.sendMessage(remoteJid, {
-          text: `✅ *Waktu Disimpan!*\n📝 Tugas: *${updated.task}*\n⏰ Deadline: *${deadlineStr}*\n\nAku akan ingatkan saat mendekati waktunya. Semangat!`,
+          text: `✅ *Waktu Disimpan!*\n📝 Tugas: *${updated.task}*\n⏰ Pengingat: *${deadlineStr}*\n\nAku akan ingatkan saat mendekati waktunya. Semangat! ✨`,
         });
         if (reply?.key?.id) {
           await linkTaskMessage(db, updated.id, reply.key.id);
@@ -241,8 +303,11 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       status: 'pending_deadline',
     });
 
+    const suggestions = getDynamicTimeSuggestions(user.timezone, new Date());
+    const suggestionList = suggestions.map((s, idx) => `${['1️⃣', '2️⃣', '3️⃣'][idx]} ${s.label}`).join('\n');
+
     const reply = await sock.sendMessage(remoteJid, {
-      text: `📝 *Tugas Dicatat!*\n"${created.task}"\n\nKapan mau diingatkan? Balas pesan ini dengan waktu (contoh: *besok jam 2 siang*) atau pilih opsi:\n1️⃣ Nanti Sore (17:00)\n2️⃣ Besok Pagi (09:00)`,
+      text: `📝 *Tugas Siap Dicatat!*\n"${created.task}"\n\nBiar tidak terlewat, kapan sebaiknya aku ingatkan tugas ini? Kamu bisa balas pesan ini dengan waktu yang pas (contoh: *besok jam 2 siang* atau *1 jam lagi*), atau cukup pilih opsi berikut:\n${suggestionList}`,
     });
 
     if (reply?.key?.id) {
@@ -275,25 +340,50 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 }
 
 /**
- * Handles incoming WhatsApp reaction events (e.g. clicking ✅ on message)
+ * Handles incoming WhatsApp reaction events (e.g. reacting with ✅ to resolve or ❌ to cancel)
  */
 export async function handleIncomingReaction(sock: any, reactionEvent: any): Promise<void> {
-  const reaction = reactionEvent.reaction || reactionEvent.text;
-  const messageId = reactionEvent.key?.id;
-  const remoteJid = reactionEvent.key?.remoteJid;
+  const reactionText =
+    typeof reactionEvent.reaction === 'string'
+      ? reactionEvent.reaction
+      : (reactionEvent.reaction?.text || reactionEvent.text || '');
 
-  if (reaction !== '✅' || !messageId || !remoteJid) return;
+  // If reaction was removed by user, reactionText will be empty string
+  if (!reactionText) return;
+
+  const messageId = reactionEvent.key?.id;
+  const rawRemoteJid = reactionEvent.key?.remoteJid || reactionEvent.reaction?.key?.remoteJid;
+  if (!messageId || !rawRemoteJid) return;
+
+  const remoteJid = jidNormalizedUser(rawRemoteJid);
+  const user = await ensureUserSettings(db, remoteJid);
+  if (!user.isAllowed) return;
 
   const matchedTask = await findTaskByMessageId(db, messageId);
   if (!matchedTask || matchedTask.status === 'resolved' || matchedTask.status === 'cancelled') {
     return;
   }
 
-  const resolved = await resolveTask(db, matchedTask.id, remoteJid);
-  if (resolved) {
-    const affirmation = await generateAffirmation(resolved.task);
-    await sock.sendMessage(remoteJid, {
-      text: `🎉 *Tugas Selesai!*\n"${resolved.task}"\n\n_${affirmation}_`,
-    });
+  // Handle completion reactions (✅, ✔️, etc.)
+  if (['✅', '✔️', '☑️', '👍'].includes(reactionText)) {
+    const resolved = await resolveTask(db, matchedTask.id, remoteJid);
+    if (resolved) {
+      const affirmation = await generateAffirmation(resolved.task);
+      await sock.sendMessage(remoteJid, {
+        text: `🎉 *Tugas Selesai!*\n"${resolved.task}"\n\n_${affirmation}_`,
+      });
+    }
+    return;
+  }
+
+  // Handle cancellation reactions (❌, 🚫, 🗑️, etc.)
+  if (['❌', '🚫', '🗑️', '✖️'].includes(reactionText)) {
+    const cancelled = await cancelTask(db, matchedTask.id, remoteJid);
+    if (cancelled) {
+      await sock.sendMessage(remoteJid, {
+        text: `🗑️ *Tugas Dibatalkan:*\n"${cancelled.task}"\n\nTugas ini sudah dicoret dari daftar aktifmu.`,
+      });
+    }
+    return;
   }
 }

@@ -83,7 +83,7 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(sentMessages[0]).toContain('Tugas Dicatat');
   });
 
-  it('should resolve task when user reacts with ✅ emoji', async () => {
+  it('should resolve task when user reacts with ✅ emoji string or Baileys reaction object', async () => {
     await ensureUserSettings(db, allowedUserJid, 'Owner', true);
     const task = await createTask(db, {
       userJid: allowedUserJid,
@@ -102,10 +102,10 @@ describe('Seam 5: Message & Reaction Router', () => {
       },
     };
 
-    // Trigger reaction event
+    // Trigger reaction event with real Baileys object structure
     await handleIncomingReaction(mockSock as any, {
       key: { remoteJid: allowedUserJid, id: botMsgId },
-      reaction: '✅',
+      reaction: { text: '✅', key: { remoteJid: allowedUserJid, fromMe: false } },
     });
 
     const checkTask = await db.select().from(tasks);
@@ -113,4 +113,96 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(sentMessages.length).toBe(1);
     expect(sentMessages[0]).toContain('Tugas Selesai');
   });
+
+  it('should cancel task when user reacts with ❌ emoji', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Jadwal beli perlengkapan kantor',
+      status: 'pending',
+    });
+
+    const botMsgId = 'BOT_MSG_CANCEL_100';
+    await linkTaskMessage(db, task.id, botMsgId);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_CANCEL_RESP' } };
+      },
+    };
+
+    // Trigger cancellation reaction
+    await handleIncomingReaction(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: botMsgId },
+      reaction: { text: '❌', key: { remoteJid: allowedUserJid, fromMe: false } },
+    });
+
+    const checkTask = await db.select().from(tasks);
+    expect(checkTask[0]?.status).toBe('cancelled');
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Tugas Dibatalkan');
+  });
+
+  it('should cancel task when user replies with ❌ or "batal" to a bot message', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Review PR frontend',
+      status: 'pending',
+    });
+
+    const botMsgId = 'BOT_MSG_REPLY_CANCEL';
+    await linkTaskMessage(db, task.id, botMsgId);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_REPLY_RESP' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_REPLY_MSG' },
+      message: {
+        extendedTextMessage: {
+          text: '❌',
+          contextInfo: {
+            stanzaId: botMsgId,
+          },
+        },
+      },
+    });
+
+    const checkTask = await db.select().from(tasks);
+    expect(checkTask[0]?.status).toBe('cancelled');
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Tugas Dibatalkan');
+  });
+
+  it('should provide dynamic suggestions when task has no time or date', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_BOT_SUGGESTION' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'MSG_TASK_NO_TIME' },
+      message: { conversation: 'Beli obat batuk dan vitamin c' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Tugas Siap Dicatat!');
+    expect(sentMessages[0]).toContain('1️⃣');
+    expect(sentMessages[0]).toContain('2️⃣');
+    expect(sentMessages[0]).toContain('3️⃣');
+  });
 });
+

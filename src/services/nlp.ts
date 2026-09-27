@@ -256,8 +256,8 @@ Analisis pesan berikut: "${trimmed}"
 Instruksi:
 1. Tentukan apakah pesan ini adalah sebuah tugas (isTask: true/false).
 2. Bersihkan judul tugas dari kata penunjuk waktu (taskTitle).
-3. Jika ada tenggat waktu (deadline), ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z"). Jika tidak ada waktu, isi null.
-4. Set needsDeadline ke true jika isTask=true tetapi deadline=null.
+3. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z").
+4. ATURAN WAJIB: Jika pengguna TIDAK menyebutkan keterangan tanggal, hari, jam, atau waktu sama sekali, JANGAN PERNAH berasumsi, menebak, atau menentukan sendiri batas waktunya! Isi deadline: null dan needsDeadline: true.
 
 Balas HANYA dengan JSON valid tanpa markdown formatting:
 {"isTask": boolean, "taskTitle": string, "deadline": string | null, "needsDeadline": boolean}`;
@@ -274,6 +274,11 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
         gemini.models.generateContent({
           model: config.geminiModel,
           contents: prompt,
+          config: {
+            thinkingConfig: {
+              thinkingLevel: config.geminiThinkingLevel as any,
+            },
+          },
         }),
         timeoutPromise,
       ]);

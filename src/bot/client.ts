@@ -9,7 +9,7 @@ import qrcode from 'qrcode-terminal';
 import { Boom } from '@hapi/boom';
 import { config } from '../config/index.js';
 import { handleIncomingMessage, handleIncomingReaction, formatDateTime } from './handlers/router.js';
-import { checkAndDispatchReminders } from '../services/reminder.js';
+import { checkAndDispatchReminders, generateReminderMessage } from '../services/reminder.js';
 import { db } from '../db/index.js';
 import { ensureUserSettings } from '../services/task.js';
 import { ensureAuthDirectory, saveCredentialsSafely } from './auth.js';
@@ -110,8 +110,16 @@ export async function startBot() {
 
   // Reaction listener
   sock.ev.on('messages.reaction', async (reactions) => {
+    const botJid = sock.user?.id ? jidNormalizedUser(sock.user.id) : '';
+
     for (const r of reactions) {
-      if (r.key?.id && botSentMessageIds.has(r.key.id) && r.key.fromMe) continue;
+      const rawJid = r.key?.remoteJid || r.reaction?.key?.remoteJid || '';
+      const normalizedRemote = jidNormalizedUser(rawJid);
+      const isSelfChat = Boolean(botJid && normalizedRemote === botJid);
+
+      // Only skip reactions if they were sent by this bot account to another person
+      if (r.reaction?.key?.fromMe && !isSelfChat) continue;
+
       try {
         await handleIncomingReaction(sock, r);
       } catch (err) {
@@ -129,13 +137,7 @@ export async function startBot() {
           ? formatDateTime(new Date(task.deadline), user.timezone)
           : '';
 
-        let alertText = '';
-        if (isOverdue) {
-          alertText = `⚠️ *Peringatan Tenggat Waktu!*\n\nTugas *"${task.task}"* telah melewati batas waktu (${deadlineStr}) dan belum diselesaikan.\n\nKetik *selesai ${task.id}* atau balas pesan ini dengan ✅ jika sudah selesai!`;
-        } else {
-          alertText = `⏰ *Pengingat Tugas!*\n\nTugas *"${task.task}"* akan jatuh tempo pada:\n📅 *${deadlineStr}*\n\nSemangat menyelesaikan! Beri reaksi ✅ pada pesan ini jika sudah tuntas.`;
-        }
-
+        const alertText = await generateReminderMessage(task, isOverdue, deadlineStr);
         const sent = await sock.sendMessage(task.userJid, { text: alertText });
         return sent?.key?.id ?? null;
       });

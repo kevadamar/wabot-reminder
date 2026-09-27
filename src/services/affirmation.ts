@@ -36,6 +36,11 @@ export async function generateAffirmation(taskName: string, customClient?: any):
         gemini.models.generateContent({
           model: config.geminiModel,
           contents: prompt,
+          config: {
+            thinkingConfig: {
+              thinkingLevel: config.geminiThinkingLevel as any,
+            },
+          },
         }),
         timeoutPromise,
       ]);
