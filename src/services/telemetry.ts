@@ -171,6 +171,9 @@ export const runtimeHealth = {
   whatsappChangedAt: new Date(),
   lastReminderCycleAt: null as Date | null,
   lastMorningDigestCycleAt: null as Date | null,
+  schedulerPaused: false,
+  reminderCronEnabled: true,
+  morningDigestCronEnabled: true,
 };
 
 export function recordAiUsage(

@@ -239,11 +239,35 @@ S3_FORCE_PATH_STYLE=true
 > **Tips S3 Rust FS di Dokploy / Docker Network:** Karena container bot dan container S3 Rust Anda berada di mesin VPS yang sama dalam Docker network, Anda cukup menggunakan hostname container S3 (misal: `http://rust-s3:9000`). Latensi akses file instan (<5ms) dan data 100% aman di server sendiri.
 > **Tips Database di Dokploy:** Jika Anda menggunakan fitur *PostgreSQL Database* bawaan Dokploy, Anda bisa memasukkan koneksi internal Docker network Dokploy secara langsung ke `DATABASE_URL`.
 
-### Dashboard monitoring
+### 📊 Dashboard Monitoring & Admin Control Room
 
-Dashboard tidak aktif sampai `DASHBOARD_ENABLED=true` dan username/password valid tersedia. Default bind `127.0.0.1` hanya cocok bila tunnel/proxy berjalan di host atau network namespace yang sama. Untuk container yang diakses melalui private reverse proxy, gunakan `DASHBOARD_HOST=0.0.0.0`, jangan publish port langsung ke internet, dan tempatkan endpoint di belakang HTTPS serta Cloudflare Access/VPN.
+Bot dilengkapi dengan web dashboard internal (`src/dashboard/`) yang aman, ringan (native ESM tanpa framework eksternal), dan responsif untuk pemantauan serta manajemen operasional:
 
-Dashboard hanya menyediakan aggregate task status, adoption, storage, runtime health, telemetry 24 jam, dan error code tersanitasi. JID, isi task/pesan, prompt/response AI, OCR text, nama file, serta storage path tidak dikirim ke UI.
+1. **Aktivasi & Keamanan**:
+   * Dashboard hanya aktif jika `DASHBOARD_ENABLED=true` dan dilindungi oleh **HTTP Basic Authentication** (`DASHBOARD_USERNAME` & `DASHBOARD_PASSWORD`, minimal 16 karakter).
+   * Dilengkapi header keamanan ketat: `Content-Security-Policy` (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, dan `Cache-Control: no-store`.
+   * Di lingkungan production/Dokploy, atur `DASHBOARD_HOST=0.0.0.0` dan tempatkan endpoint di belakang HTTPS reverse proxy (Traefik / Nginx / Cloudflare Access / VPN).
+
+2. **Fitur & Bagian Dashboard**:
+   * **01 Runtime & Bot Health**: Status koneksi WhatsApp socket, uptime proses, RSS memory usage, dan siklus loop background scheduler.
+   * **02 Task & Pipeline Status**: Metrik agregat jumlah tugas per status (`pending`, `pending_deadline`, `resolved`, `cancelled`).
+   * **03 User Adoption**: Jumlah pengguna terdaftar yang diizinkan (*allowed*) serta pengguna yang mengaktifkan ringkasan pagi (*morning digest*).
+   * **04 Storage & Attachment**: Jumlah berkas lampiran serta total kapasitas disk/S3 yang terpakai.
+   * **05 24h Operational Telemetry & Error Audit**: Ringkasan operasi sistem per jam dan log error tersanitasi terbaru tanpa membocorkan data pribadi.
+   * **06 User Whitelist & Access Manager**:
+     * Melihat daftar pengguna WhatsApp yang tersimpan di database beserta setelan waktu reminder dan jumlah tugas.
+     * Mengubah izin akses (*Izinkan* / *Cabut Akses*) secara instan.
+     * Menambahkan nomor WhatsApp baru ke whitelist secara manual.
+     * Menghapus kontak dan seluruh data terkait dari sistem.
+   * **07 Task Explorer & Interactive Detail View**:
+     * Eksplorasi seluruh daftar tugas bot dengan filter status (*Semua*, *Aktif*, *Pending*, *No Deadline*, *Selesai*, *Batal*) dan pencarian teks *real-time*.
+     * Indikator jumlah sub-tugas (`☑`) dan berkas lampiran (`📎`).
+     * **Modal Detail Tugas**: Pop-up interaktif menampilkan rincian tugas induk, daftar sub-tugas, berkas gambar/PDF, preview teks hasil OCR AI, dan jejak audit perubahan (*audit trail*).
+   * **08 Cron & Automation Monitoring**:
+     * **Background Cron Dispatchers**: Memantau status engine scheduler (*Task Reminder Dispatcher* dan *Morning Digest Dispatcher*) dengan tombol jeda/aktifkan untuk mencegah lonjakan beban atau spam.
+     * **Antrean Pengingat yang Belum Berjalan**: Melihat daftar reminder tugas yang akan dieksekusi di masa depan, dilengkapi tombol matikan pengingat sebelum dikirim ke WhatsApp.
+     * **Jadwal Morning Digest Pengguna**: Memantau dan mengatur status pengiriman ringkasan harian pengguna.
+     * **Safety Confirmation Popups**: Setiap aksi pemutusan, penonaktifan, atau penghapusan selalu menampilkan dialog konfirmasi terlebih dahulu agar admin sadar penuh (*aware*) sebelum tindakan dieksekusi.
 
 ### 4. Deploy & Scan QR Code
 1. Klik **Deploy**.

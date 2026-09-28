@@ -1,7 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
-import { desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
 import {
   taskAttachments,
+  taskHistory,
+  taskMessages,
   tasks,
   telemetryEvents,
   telemetryHourly,
@@ -255,6 +257,375 @@ export async function deleteDashboardUser(db: any, userJid: string) {
   return deleted.length > 0;
 }
 
+export async function listDashboardTasks(
+  db: any,
+  query: { status?: string; search?: string; userJid?: string; limit?: number } = {}
+) {
+  if (!db) return [];
+  const limit = Math.min(Math.max(query.limit || 50, 1), 200);
+
+  const baseQuery = db
+    .select({
+      id: tasks.id,
+      parentId: tasks.parentId,
+      userJid: tasks.userJid,
+      userName: userSettings.name,
+      task: tasks.task,
+      deadline: tasks.deadline,
+      remindAt: tasks.remindAt,
+      status: tasks.status,
+      reminded: tasks.reminded,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+      attachmentCount: sql<number>`(SELECT count(*)::int FROM ${taskAttachments} WHERE ${taskAttachments.taskId} = ${tasks.id})`,
+      subtaskCount: sql<number>`(SELECT count(*)::int FROM ${tasks} sub WHERE sub.parent_id = ${tasks.id})`,
+    })
+    .from(tasks)
+    .leftJoin(userSettings, eq(userSettings.userJid, tasks.userJid));
+
+  const conditions = [];
+  if (query.userJid) {
+    conditions.push(eq(tasks.userJid, query.userJid));
+  }
+  if (query.status && query.status !== 'all') {
+    if (query.status === 'active') {
+      conditions.push(or(eq(tasks.status, 'pending'), eq(tasks.status, 'pending_deadline')));
+    } else {
+      conditions.push(eq(tasks.status, query.status));
+    }
+  }
+  if (query.search && query.search.trim()) {
+    conditions.push(ilike(tasks.task, `%${query.search.trim()}%`));
+  }
+
+  const finalQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
+
+  const rows = await finalQuery
+    .orderBy(
+      sql`CASE WHEN ${tasks.status} IN ('pending', 'pending_deadline') THEN 0 ELSE 1 END`,
+      asc(tasks.deadline),
+      desc(tasks.createdAt)
+    )
+    .limit(limit);
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    parentId: r.parentId,
+    userJid: r.userJid,
+    phoneNumber: r.userJid.replace('@s.whatsapp.net', ''),
+    userName: r.userName || null,
+    task: r.task,
+    deadline: r.deadline ? new Date(r.deadline).toISOString() : null,
+    remindAt: r.remindAt ? new Date(r.remindAt).toISOString() : null,
+    status: r.status,
+    reminded: r.reminded,
+    attachmentCount: Number(r.attachmentCount || 0),
+    subtaskCount: Number(r.subtaskCount || 0),
+    createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+    updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
+  }));
+}
+
+export async function getDashboardTaskDetail(db: any, taskId: number) {
+  if (!db || !taskId) return null;
+
+  const mainTask = await db
+    .select({
+      id: tasks.id,
+      parentId: tasks.parentId,
+      userJid: tasks.userJid,
+      userName: userSettings.name,
+      userTimezone: userSettings.timezone,
+      task: tasks.task,
+      deadline: tasks.deadline,
+      remindAt: tasks.remindAt,
+      status: tasks.status,
+      reminded: tasks.reminded,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+    })
+    .from(tasks)
+    .leftJoin(userSettings, eq(userSettings.userJid, tasks.userJid))
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+
+  if (!mainTask.length || !mainTask[0]) {
+    return null;
+  }
+
+  const task = mainTask[0];
+
+  let parentTask = null;
+  if (task.parentId) {
+    const parentRows = await db
+      .select({ id: tasks.id, task: tasks.task, status: tasks.status })
+      .from(tasks)
+      .where(eq(tasks.id, task.parentId))
+      .limit(1);
+    parentTask = parentRows[0] || null;
+  }
+
+  const subtasks = await db
+    .select({
+      id: tasks.id,
+      task: tasks.task,
+      status: tasks.status,
+      deadline: tasks.deadline,
+      reminded: tasks.reminded,
+    })
+    .from(tasks)
+    .where(eq(tasks.parentId, taskId))
+    .orderBy(asc(tasks.id));
+
+  const attachments = await db
+    .select({
+      id: taskAttachments.id,
+      fileName: taskAttachments.fileName,
+      fileType: taskAttachments.fileType,
+      mimeType: taskAttachments.mimeType,
+      fileSize: taskAttachments.fileSize,
+      safetyStatus: taskAttachments.safetyStatus,
+      ocrExtractedText: taskAttachments.ocrExtractedText,
+      createdAt: taskAttachments.createdAt,
+    })
+    .from(taskAttachments)
+    .where(eq(taskAttachments.taskId, taskId))
+    .orderBy(desc(taskAttachments.createdAt));
+
+  const history = await db
+    .select({
+      id: taskHistory.id,
+      changeType: taskHistory.changeType,
+      fieldChanged: taskHistory.fieldChanged,
+      oldValue: taskHistory.oldValue,
+      newValue: taskHistory.newValue,
+      rawInput: taskHistory.rawInput,
+      createdAt: taskHistory.createdAt,
+    })
+    .from(taskHistory)
+    .where(eq(taskHistory.taskId, taskId))
+    .orderBy(asc(taskHistory.createdAt));
+
+  const messages = await db
+    .select({
+      id: taskMessages.id,
+      messageId: taskMessages.messageId,
+      createdAt: taskMessages.createdAt,
+    })
+    .from(taskMessages)
+    .where(eq(taskMessages.taskId, taskId))
+    .orderBy(desc(taskMessages.createdAt));
+
+  return {
+    task: {
+      id: task.id,
+      parentId: task.parentId,
+      userJid: task.userJid,
+      phoneNumber: task.userJid.replace('@s.whatsapp.net', ''),
+      userName: task.userName || null,
+      userTimezone: task.userTimezone || 'Asia/Jakarta',
+      task: task.task,
+      deadline: task.deadline ? new Date(task.deadline).toISOString() : null,
+      remindAt: task.remindAt ? new Date(task.remindAt).toISOString() : null,
+      status: task.status,
+      reminded: task.reminded,
+      createdAt: task.createdAt ? new Date(task.createdAt).toISOString() : null,
+      updatedAt: task.updatedAt ? new Date(task.updatedAt).toISOString() : null,
+    },
+    parentTask,
+    subtasks: subtasks.map((s: any) => ({
+      id: s.id,
+      task: s.task,
+      status: s.status,
+      deadline: s.deadline ? new Date(s.deadline).toISOString() : null,
+      reminded: s.reminded,
+    })),
+    attachments: attachments.map((a: any) => ({
+      id: a.id,
+      fileName: a.fileName,
+      fileType: a.fileType,
+      mimeType: a.mimeType,
+      fileSize: a.fileSize,
+      safetyStatus: a.safetyStatus,
+      ocrExtractedText: a.ocrExtractedText,
+      createdAt: a.createdAt ? new Date(a.createdAt).toISOString() : null,
+    })),
+    history: history.map((h: any) => ({
+      id: h.id,
+      changeType: h.changeType,
+      fieldChanged: h.fieldChanged,
+      oldValue: h.oldValue,
+      newValue: h.newValue,
+      rawInput: h.rawInput,
+      createdAt: h.createdAt ? new Date(h.createdAt).toISOString() : null,
+    })),
+    messages: messages.map((m: any) => ({
+      id: m.id,
+      messageId: m.messageId,
+      createdAt: m.createdAt ? new Date(m.createdAt).toISOString() : null,
+    })),
+  };
+}
+
+export async function listScheduledCrons(db: any) {
+  const engine = [
+    {
+      id: 'reminder_dispatcher',
+      name: 'Task Reminder Dispatcher',
+      description: 'Memeriksa dan mengirimkan notifikasi pengingat WhatsApp untuk tugas yang jatuh tempo.',
+      interval: 'Setiap 60 detik',
+      enabled: runtimeHealth.reminderCronEnabled && !runtimeHealth.schedulerPaused,
+      isPaused: !runtimeHealth.reminderCronEnabled || runtimeHealth.schedulerPaused,
+      lastRunAt: runtimeHealth.lastReminderCycleAt?.toISOString() ?? null,
+    },
+    {
+      id: 'morning_digest_dispatcher',
+      name: 'Morning Digest Dispatcher',
+      description: 'Menyusun ringkasan tugas harian dan pantun motivasi pagi hari bagi pengguna terdaftar.',
+      interval: 'Setiap 60 detik',
+      enabled: runtimeHealth.morningDigestCronEnabled && !runtimeHealth.schedulerPaused,
+      isPaused: !runtimeHealth.morningDigestCronEnabled || runtimeHealth.schedulerPaused,
+      lastRunAt: runtimeHealth.lastMorningDigestCycleAt?.toISOString() ?? null,
+    },
+  ];
+
+  let upcomingReminders: any[] = [];
+  let upcomingDigests: any[] = [];
+
+  if (db) {
+    const reminderRows = await db
+      .select({
+        id: tasks.id,
+        task: tasks.task,
+        userJid: tasks.userJid,
+        userName: userSettings.name,
+        deadline: tasks.deadline,
+        remindAt: tasks.remindAt,
+        status: tasks.status,
+        reminded: tasks.reminded,
+      })
+      .from(tasks)
+      .leftJoin(userSettings, eq(userSettings.userJid, tasks.userJid))
+      .where(
+        and(
+          eq(tasks.status, 'pending'),
+          eq(tasks.reminded, 0),
+          sql`${tasks.remindAt} IS NOT NULL`
+        )
+      )
+      .orderBy(asc(tasks.remindAt))
+      .limit(50);
+
+    const now = new Date();
+    upcomingReminders = reminderRows.map((r: any) => ({
+      id: r.id,
+      task: r.task,
+      userJid: r.userJid,
+      phoneNumber: r.userJid.replace('@s.whatsapp.net', ''),
+      userName: r.userName || null,
+      deadline: r.deadline ? new Date(r.deadline).toISOString() : null,
+      remindAt: r.remindAt ? new Date(r.remindAt).toISOString() : null,
+      isDue: r.remindAt ? new Date(r.remindAt) <= now : false,
+      status: r.status,
+      reminded: r.reminded,
+    }));
+
+    const digestRows = await db
+      .select({
+        userJid: userSettings.userJid,
+        name: userSettings.name,
+        timezone: userSettings.timezone,
+        morningDigestTime: userSettings.morningDigestTime,
+      })
+      .from(userSettings)
+      .where(and(eq(userSettings.isAllowed, true), eq(userSettings.morningDigestEnabled, true)))
+      .orderBy(asc(userSettings.morningDigestTime));
+
+    upcomingDigests = digestRows.map((d: any) => ({
+      userJid: d.userJid,
+      phoneNumber: d.userJid.replace('@s.whatsapp.net', ''),
+      name: d.name || null,
+      timezone: d.timezone,
+      morningDigestTime: d.morningDigestTime,
+    }));
+  }
+
+  return {
+    engine,
+    upcomingReminders,
+    upcomingDigests,
+    schedulerPaused: runtimeHealth.schedulerPaused,
+  };
+}
+
+export function toggleCronEngine(cronId: string, enabled?: boolean) {
+  if (cronId === 'scheduler') {
+    runtimeHealth.schedulerPaused = typeof enabled === 'boolean' ? !enabled : !runtimeHealth.schedulerPaused;
+  } else if (cronId === 'reminder_dispatcher') {
+    runtimeHealth.reminderCronEnabled = typeof enabled === 'boolean' ? enabled : !runtimeHealth.reminderCronEnabled;
+  } else if (cronId === 'morning_digest_dispatcher') {
+    runtimeHealth.morningDigestCronEnabled = typeof enabled === 'boolean' ? enabled : !runtimeHealth.morningDigestCronEnabled;
+  } else {
+    throw new Error('UNKNOWN_CRON_ID');
+  }
+
+  return {
+    cronId,
+    schedulerPaused: runtimeHealth.schedulerPaused,
+    reminderCronEnabled: runtimeHealth.reminderCronEnabled,
+    morningDigestCronEnabled: runtimeHealth.morningDigestCronEnabled,
+  };
+}
+
+export async function disableTaskReminder(db: any, taskId: number) {
+  if (!db || !taskId) throw new Error('Database and taskId are required');
+  const existing = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  if (!existing.length || !existing[0]) {
+    return null;
+  }
+  const task = existing[0];
+  const updated = await db
+    .update(tasks)
+    .set({
+      reminded: 2,
+      remindAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, taskId))
+    .returning();
+
+  await db.insert(taskHistory).values({
+    taskId,
+    userJid: task.userJid,
+    changeType: 'cancel_reminder',
+    fieldChanged: 'remind_at',
+    oldValue: task.remindAt ? new Date(task.remindAt).toISOString() : null,
+    newValue: 'DISABLED_BY_ADMIN',
+    rawInput: 'Admin disabled reminder from dashboard to prevent spam/load',
+  });
+
+  return updated[0];
+}
+
+export async function toggleUserMorningDigest(db: any, userJid: string, enabled: boolean) {
+  if (!db || !userJid) throw new Error('Database and userJid are required');
+  const existing = await db.select().from(userSettings).where(eq(userSettings.userJid, userJid)).limit(1);
+  if (!existing.length || !existing[0]) {
+    return null;
+  }
+  const updated = await db
+    .update(userSettings)
+    .set({
+      morningDigestEnabled: enabled,
+      morningDigestUpdatedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userJid, userJid))
+    .returning();
+
+  return updated[0];
+}
+
 export function createDashboardHandler(options: {
   username: string;
   password: string;
@@ -268,7 +639,8 @@ export function createDashboardHandler(options: {
       return new Response('Authentication required', { status: 401, headers });
     }
 
-    const pathname = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const pathname = url.pathname;
 
     if (request.method === 'GET') {
       if (pathname === '/') {
@@ -301,10 +673,102 @@ export function createDashboardHandler(options: {
           );
         }
       }
+      if (pathname === '/api/tasks') {
+        try {
+          const status = url.searchParams.get('status') || undefined;
+          const search = url.searchParams.get('search') || undefined;
+          const userJid = url.searchParams.get('userJid') || undefined;
+          const limit = url.searchParams.has('limit') ? parseInt(url.searchParams.get('limit')!, 10) : undefined;
+          const tasksList = await listDashboardTasks(options.db, { status, search, userJid, limit });
+          return Response.json(tasksList, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_LIST_TASKS' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
+      }
+      if (pathname === '/api/tasks/detail') {
+        try {
+          const rawId = url.searchParams.get('id');
+          const taskId = rawId ? parseInt(rawId, 10) : NaN;
+          if (isNaN(taskId) || taskId <= 0) {
+            return Response.json({ error: 'INVALID_TASK_ID' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const detail = await getDashboardTaskDetail(options.db, taskId);
+          if (!detail) {
+            return Response.json({ error: 'TASK_NOT_FOUND' }, { status: 404, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          return Response.json(detail, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_GET_TASK_DETAIL' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
+      }
+      if (pathname === '/api/crons') {
+        try {
+          const crons = await listScheduledCrons(options.db);
+          return Response.json(crons, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_LIST_CRONS' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
+      }
       return new Response('Not found', { status: 404, headers: secureHeaders('text/plain; charset=utf-8') });
     }
 
     if (request.method === 'POST') {
+      if (pathname === '/api/crons/engine/toggle') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (!body?.cronId) {
+            return Response.json({ error: 'MISSING_CRON_ID' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const result = toggleCronEngine(body.cronId, body.enabled);
+          return Response.json({ success: true, ...result }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json({ error: err?.message || 'FAILED_TO_TOGGLE_CRON_ENGINE' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
+      if (pathname === '/api/crons/reminders/disable') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          const taskId = Number(body?.taskId);
+          if (!taskId || taskId <= 0) {
+            return Response.json({ error: 'INVALID_TASK_ID' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const result = await disableTaskReminder(options.db, taskId);
+          if (!result) {
+            return Response.json({ error: 'TASK_NOT_FOUND' }, { status: 404, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          return Response.json({ success: true, task: result }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json({ error: err?.message || 'FAILED_TO_DISABLE_TASK_REMINDER' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
+      if (pathname === '/api/crons/digest/toggle') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (!body?.userJid) {
+            return Response.json({ error: 'MISSING_USER_JID' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const enabled = Boolean(body.enabled);
+          const result = await toggleUserMorningDigest(options.db, body.userJid, enabled);
+          if (!result) {
+            return Response.json({ error: 'USER_NOT_FOUND' }, { status: 404, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          return Response.json({ success: true, user: result }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json({ error: err?.message || 'FAILED_TO_TOGGLE_USER_DIGEST' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
       if (pathname === '/api/users/toggle') {
         try {
           const body = (await request.json().catch(() => ({}))) as any;

@@ -203,6 +203,10 @@ export async function startBot() {
       telemetry.increment('scheduler_cycle_total', { operation: 'combined', outcome: 'skipped' });
       return;
     }
+    if (runtimeHealth.schedulerPaused) {
+      telemetry.increment('scheduler_cycle_total', { operation: 'combined', outcome: 'paused' });
+      return;
+    }
     if (runtimeHealth.whatsappStatus !== 'connected') {
       telemetry.increment('scheduler_cycle_total', { operation: 'combined', outcome: 'disconnected' });
       return;
@@ -210,71 +214,75 @@ export async function startBot() {
     schedulerRunning = true;
     const cycleStartedAt = performance.now();
     try {
-      const reminderCount = await checkAndDispatchReminders(db, async (task, isOverdue) => {
-        const user = await ensureUserSettings(db, task.userJid);
-        const deadlineStr = task.deadline
-          ? formatDateTime(new Date(task.deadline), user.timezone)
-          : '';
+      if (runtimeHealth.reminderCronEnabled) {
+        const reminderCount = await checkAndDispatchReminders(db, async (task, isOverdue) => {
+          const user = await ensureUserSettings(db, task.userJid);
+          const deadlineStr = task.deadline
+            ? formatDateTime(new Date(task.deadline), user.timezone)
+            : '';
 
-        let parentTitle: string | null = null;
-        if (task.parentId) {
-          const parent = await db.select().from(tasks).where(eq(tasks.id, task.parentId)).limit(1);
-          parentTitle = parent[0]?.task ?? null;
-        }
+          let parentTitle: string | null = null;
+          if (task.parentId) {
+            const parent = await db.select().from(tasks).where(eq(tasks.id, task.parentId)).limit(1);
+            parentTitle = parent[0]?.task ?? null;
+          }
 
-        const alertText = await generateReminderMessage(task, isOverdue, deadlineStr, undefined, parentTitle);
+          const alertText = await generateReminderMessage(task, isOverdue, deadlineStr, undefined, parentTitle);
 
-        // Direct Media Reminder: Send media image/PDF with alertText as caption if attachment exists
-        let sent: any = null;
-        try {
-          const attachments = await getTaskAttachments(db, task.id);
-          if (attachments.length > 0 && attachments[0]) {
-            const primary = attachments[0];
-            const buffer = await getAttachmentBuffer(primary.storagePath);
+          // Direct Media Reminder: Send media image/PDF with alertText as caption if attachment exists
+          let sent: any = null;
+          try {
+            const attachments = await getTaskAttachments(db, task.id);
+            if (attachments.length > 0 && attachments[0]) {
+              const primary = attachments[0];
+              const buffer = await getAttachmentBuffer(primary.storagePath);
 
-            if (buffer) {
-              if (primary.fileType === 'image') {
-                sent = await sock.sendMessage(task.userJid, {
-                  image: buffer,
-                  caption: alertText,
-                });
-              } else if (primary.fileType === 'document') {
-                sent = await sock.sendMessage(task.userJid, {
-                  document: buffer,
-                  fileName: primary.fileName,
-                  mimetype: primary.mimeType,
-                  caption: alertText,
-                });
+              if (buffer) {
+                if (primary.fileType === 'image') {
+                  sent = await sock.sendMessage(task.userJid, {
+                    image: buffer,
+                    caption: alertText,
+                  });
+                } else if (primary.fileType === 'document') {
+                  sent = await sock.sendMessage(task.userJid, {
+                    document: buffer,
+                    fileName: primary.fileName,
+                    mimetype: primary.mimeType,
+                    caption: alertText,
+                  });
+                }
               }
             }
+          } catch (mediaErr: any) {
+            logger.warn({ err: mediaErr, taskId: task.id }, 'Gagal mengirim pengingat dengan lampiran media, beralih ke teks');
           }
-        } catch (mediaErr: any) {
-          logger.warn({ err: mediaErr, taskId: task.id }, 'Gagal mengirim pengingat dengan lampiran media, beralih ke teks');
-        }
 
-        // Fallback to text reminder if no media attachment or media send was skipped
-        if (!sent) {
-          sent = await sock.sendMessage(task.userJid, { text: alertText });
-        }
+          // Fallback to text reminder if no media attachment or media send was skipped
+          if (!sent) {
+            sent = await sock.sendMessage(task.userJid, { text: alertText });
+          }
 
-        return sent?.key?.id ?? null;
-      });
-      runtimeHealth.lastReminderCycleAt = new Date();
-      telemetry.observe('reminder_dispatch_count', reminderCount, { outcome: 'success' });
-
-      const digestResult = await dispatchMorningDigests(db, {
-        sendMessage: async (userJid, text) => {
-          const sent = await sock.sendMessage(userJid, { text });
           return sent?.key?.id ?? null;
-        },
-      });
-      runtimeHealth.lastMorningDigestCycleAt = new Date();
-      telemetry.observe('morning_digest_due_count', digestResult.due, { outcome: 'success' });
-      if (digestResult.sent > 0) {
-        telemetry.observe('morning_digest_sent_count', digestResult.sent, { outcome: 'success' });
+        });
+        runtimeHealth.lastReminderCycleAt = new Date();
+        telemetry.observe('reminder_dispatch_count', reminderCount, { outcome: 'success' });
       }
-      if (digestResult.failed > 0) {
-        telemetry.observe('morning_digest_failed_count', digestResult.failed, { outcome: 'failed' });
+
+      if (runtimeHealth.morningDigestCronEnabled) {
+        const digestResult = await dispatchMorningDigests(db, {
+          sendMessage: async (userJid, text) => {
+            const sent = await sock.sendMessage(userJid, { text });
+            return sent?.key?.id ?? null;
+          },
+        });
+        runtimeHealth.lastMorningDigestCycleAt = new Date();
+        telemetry.observe('morning_digest_due_count', digestResult.due, { outcome: 'success' });
+        if (digestResult.sent > 0) {
+          telemetry.observe('morning_digest_sent_count', digestResult.sent, { outcome: 'success' });
+        }
+        if (digestResult.failed > 0) {
+          telemetry.observe('morning_digest_failed_count', digestResult.failed, { outcome: 'failed' });
+        }
       }
       telemetry.increment('scheduler_cycle_total', { operation: 'combined', outcome: 'success' });
     } catch (err) {

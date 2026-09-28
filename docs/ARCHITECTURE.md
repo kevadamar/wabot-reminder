@@ -297,7 +297,12 @@ erDiagram
    - **Direct Media Reminder Dispatcher**: Saat interval pengingat tiba, jika tugas memiliki lampiran gambar atau dokumen, bot mengambil buffer file dari S3 Rust FS (atau local storage) dan mengirimkannya langsung ke WhatsApp dengan teks pengingat ramah sebagai caption. ID pesan yang terkirim dihubungkan ke `task_messages` sehingga reaksi emoji (✅ / ❌) pada balon media berfungsi penuh.
 2. **Network Attack Surface & Monitoring Dashboard**:
    - Zero public inbound ports for the bot core. Baileys connects exclusively via an outbound WebSocket directly to WhatsApp infrastructure (`*.whatsapp.net`).
-   - **Lightweight Monitoring Dashboard (`src/dashboard/`)**: Dashboard monitoring operasional internal pada port 3080 (`DASHBOARD_PORT`). Bersifat opsional (`DASHBOARD_ENABLED=false` secara default), dilindungi oleh HTTP Basic Authentication (`DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`), terikat pada loopback (`127.0.0.1`), dan hanya menyediakan akses *read-only* ke ringkasan metrik kesehatan sistem, uptime, memory, socket status, dan telemetri database tanpa kemampuan mutasi data.
+   - **Internal Monitoring Dashboard & Control Room (`src/dashboard/`)**: Dashboard pemantauan dan administrasi operasional bot pada port 3080 (`DASHBOARD_PORT`). Bersifat opsional (`DASHBOARD_ENABLED=false` secara default), diproteksi penuh oleh HTTP Basic Authentication (`DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD` minimal 16 karakter), header keamanan ketat (CSP, nosniff, frame denial, no-store), dan terpisah dari WhatsApp runtime socket.
+   - **Administrative Capabilities**:
+     - *Whitelist & Access Manager*: Mutasi status `is_allowed` per pengguna, penambahan nomor baru secara manual, dan penghapusan kontak terisolasi.
+     - *Task Explorer & Detail View*: Query daftar tugas, filter status, relasi tugas induk/anak, inspeksi lampiran media, hasil OCR AI, serta jejak audit perbaikan tugas (*audit trail*).
+     - *Cron & Automation Monitoring*: Monitoring siklus scheduler (`Task Reminder Dispatcher`, `Morning Digest Dispatcher`), jeda/aktifkan engine cron secara dinamis, dan pembatalan reminder yang belum berjalan untuk mencegah lonjakan beban atau spam.
+   - **Safety Confirmation Safeguards**: Seluruh aksi mutasi yang berpotensi destruktif atau mengubah alur pengiriman pesan diproteksi oleh dialog konfirmasi sadar-admin (*awareness modal confirmation*) di frontend sebelum request HTTP dikirimkan.
 3. **Database Isolation**:
    - PostgreSQL connections use credentialed TCP (`DATABASE_URL`).
    - Can run entirely inside Docker network bridges or bind strictly to `localhost:5432`.
