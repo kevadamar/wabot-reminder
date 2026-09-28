@@ -12,6 +12,7 @@ import {
   toggleCronEngine,
   disableTaskReminder,
   toggleUserMorningDigest,
+  updateUserLeadReminderMinutes,
 } from '../../src/dashboard/server.js';
 import { db } from '../../src/db/index.js';
 import { eq } from 'drizzle-orm';
@@ -463,7 +464,92 @@ describe('Monitoring dashboard HTTP boundary & user whitelist management', () =>
     );
   });
 
-  it('serves dashboard assets with Task Explorer, Cron Monitoring, and Confirmation Modal', async () => {
+  it('allows configuring user lead reminder minutes via POST /api/users/lead-time with validation', async () => {
+    const handler = createDashboardHandler({
+      username: 'admin',
+      password: 'a-secure-password-123',
+      snapshot,
+      db,
+    });
+
+    const userJid = '6281233445566@s.whatsapp.net';
+    await db.insert(userSettings).values({
+      userJid,
+      name: 'Lead Time User',
+      isAllowed: true,
+      timezone: 'Asia/Jakarta',
+      leadReminderMinutes: 10,
+    });
+
+    // 1. Update lead time to 30 minutes
+    const resValid = await handler(
+      new Request('http://localhost/api/users/lead-time', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ userJid, leadMinutes: 30 }),
+      })
+    );
+    expect(resValid.status).toBe(200);
+    const bodyValid = (await resValid.json()) as any;
+    expect(bodyValid.success).toBe(true);
+    expect(bodyValid.user.leadReminderMinutes).toBe(30);
+
+    // 2. Verify in GET /api/users
+    const listRes = await handler(new Request('http://localhost/api/users', { headers: authHeaders }));
+    const users = (await listRes.json()) as any[];
+    const targetUser = users.find((u) => u.userJid === userJid);
+    expect(targetUser?.leadReminderMinutes).toBe(30);
+
+    // 3. Validation: Missing userJid -> 400
+    const resMissingJid = await handler(
+      new Request('http://localhost/api/users/lead-time', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ leadMinutes: 15 }),
+      })
+    );
+    expect(resMissingJid.status).toBe(400);
+
+    // 4. Validation: Invalid lead minutes (< 1 or > 1440 or NaN) -> 400
+    const resZero = await handler(
+      new Request('http://localhost/api/users/lead-time', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ userJid, leadMinutes: 0 }),
+      })
+    );
+    expect(resZero.status).toBe(400);
+
+    const resTooLarge = await handler(
+      new Request('http://localhost/api/users/lead-time', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ userJid, leadMinutes: 1500 }),
+      })
+    );
+    expect(resTooLarge.status).toBe(400);
+
+    const resNaN = await handler(
+      new Request('http://localhost/api/users/lead-time', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ userJid, leadMinutes: 'invalid' }),
+      })
+    );
+    expect(resNaN.status).toBe(400);
+
+    // 5. Non-existent user -> 404
+    const resNotFound = await handler(
+      new Request('http://localhost/api/users/lead-time', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ userJid: '6289999999999@s.whatsapp.net', leadMinutes: 15 }),
+      })
+    );
+    expect(resNotFound.status).toBe(404);
+  });
+
+  it('serves dashboard assets with Task Explorer, Cron Monitoring, Lead Time Manager, and Confirmation Modal', async () => {
     const handler = createDashboardHandler({
       username: 'admin',
       password: 'a-secure-password-123',
@@ -478,6 +564,7 @@ describe('Monitoring dashboard HTTP boundary & user whitelist management', () =>
     expect(html).toContain('id="tasks-table-body"');
     expect(html).toContain('id="task-modal"');
     expect(html).toContain('id="confirm-modal"');
+    expect(html).toContain('id="lead-modal"');
     expect(html).toContain('id="cron-reminders-body"');
 
     const cssRes = await handler(new Request('http://localhost/dashboard.css', { headers: authHeaders }));
@@ -486,6 +573,8 @@ describe('Monitoring dashboard HTTP boundary & user whitelist management', () =>
     expect(css).toContain('.task-modal');
     expect(css).toContain('.confirm-modal');
     expect(css).toContain('.cron-card');
+    expect(css).toContain('.lead-badge');
+    expect(css).toContain('.btn-lead');
 
     const jsRes = await handler(new Request('http://localhost/dashboard.js', { headers: authHeaders }));
     const js = await jsRes.text();
@@ -494,6 +583,8 @@ describe('Monitoring dashboard HTTP boundary & user whitelist management', () =>
     expect(js).toContain('loadCrons');
     expect(js).toContain('askAdminConfirmation');
     expect(js).toContain('renderCrons');
+    expect(js).toContain('openLeadTimeModal');
   });
 });
+
 

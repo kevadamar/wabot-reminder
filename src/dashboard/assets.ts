@@ -229,6 +229,35 @@ export const DASHBOARD_HTML = `<!doctype html>
       </div>
     </dialog>
 
+    <dialog id="lead-modal" class="confirm-modal" aria-labelledby="lead-modal-title">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow block-eyebrow">PENGATURAN REMINDER</span>
+          <h3 id="lead-modal-title" class="modal-title">Atur Lead Time Reminder</h3>
+        </div>
+        <button type="button" id="lead-modal-close-btn" class="modal-close" aria-label="Tutup dialog">✕</button>
+      </div>
+      <div class="modal-body" style="padding-top:1rem;gap:1rem;">
+        <p class="muted" id="lead-modal-desc">Tentukan berapa menit sebelum deadline bot akan mengirimkan notifikasi pengingat ke pengguna ini.</p>
+        <div class="lead-presets">
+          <button type="button" class="btn-preset" data-mins="5">5m</button>
+          <button type="button" class="btn-preset" data-mins="10">10m</button>
+          <button type="button" class="btn-preset" data-mins="15">15m</button>
+          <button type="button" class="btn-preset" data-mins="30">30m</button>
+          <button type="button" class="btn-preset" data-mins="60">60m (1 jam)</button>
+        </div>
+        <div class="form-group">
+          <label for="lead-minutes-input">Lead Time Pengingat (Menit):</label>
+          <input type="number" id="lead-minutes-input" class="input-text" min="1" max="1440" placeholder="Contoh: 15">
+          <span class="muted" style="font-size:0.75rem;margin-top:0.25rem;">Rentang: 1 – 1440 menit (maks 24 jam sebelum deadline).</span>
+        </div>
+        <div class="confirm-actions" style="margin-top:0.5rem;">
+          <button type="button" id="lead-modal-cancel" class="btn-cancel">Batal</button>
+          <button type="button" id="lead-modal-save" class="btn-allow">Simpan Lead Time</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="confirm-modal" class="confirm-modal" aria-labelledby="confirm-modal-title">
       <div class="confirm-content">
         <div class="confirm-icon">⚠️</div>
@@ -252,7 +281,7 @@ export const DASHBOARD_HTML = `<!doctype html>
 export const DASHBOARD_CSS = `
 :root{--bg:#111513;--surface:#171c19;--line:#303832;--text:#edf3ef;--muted:#9ca9a1;--accent:#8ee3b0;--warn:#ffcf70;--danger:#ff8b84;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);background:var(--bg)}
 *{box-sizing:border-box}body{margin:0;min-width:320px;background:var(--bg);line-height:1.5}.skip-link{position:absolute;left:1rem;top:-4rem;background:var(--accent);color:#08110b;padding:.6rem 1rem;z-index:10}.skip-link:focus{top:1rem}.topbar{display:flex;justify-content:space-between;align-items:flex-end;gap:2rem;padding:2rem clamp(1rem,4vw,4rem);border-bottom:1px solid var(--line)}h1,h2,p{margin:0}h1{font-size:clamp(2rem,5vw,4.5rem);letter-spacing:-.055em;line-height:.95;font-weight:650}h2{font-size:1.05rem;letter-spacing:.02em}.eyebrow,.index{font:600 .7rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;color:var(--accent);margin-bottom:.65rem}.topbar-actions{display:flex;align-items:center;gap:1rem}.muted{color:var(--muted);font-size:.85rem}button{font:inherit;font-weight:650;color:var(--bg);background:var(--accent);border:0;padding:.65rem 1rem;cursor:pointer}button:hover{filter:brightness(1.08)}button:focus-visible,a:focus-visible{outline:3px solid var(--warn);outline-offset:3px}main{max-width:1440px;margin:auto;padding:0 clamp(1rem,4vw,4rem)}section,article{padding:2rem 0;border-bottom:1px solid var(--line)}.section-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}.section-heading.compact{margin-bottom:.6rem}.section-heading>div{display:flex;align-items:baseline;gap:.8rem}.section-heading .index{margin:0}.status{font:700 .75rem ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);border:1px solid currentColor;padding:.3rem .55rem}.status.warn{color:var(--warn)}.status.danger{color:var(--danger)}.metric-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin:0;border:1px solid var(--line)}.metric-strip>div{padding:1rem;border-right:1px solid var(--line)}.metric-strip>div:last-child{border:0}dt{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.08em}dd{margin:.35rem 0 0;font-size:1.2rem;font-weight:650}.split{display:grid;grid-template-columns:1fr 1fr;gap:3rem}.split article{border:0;padding:0}.data-list{margin:0}.data-list>div{display:flex;justify-content:space-between;gap:1rem;padding:.8rem 0;border-bottom:1px solid var(--line)}.data-list dd{margin:0;font-size:1rem}.table-wrap{overflow-x:auto;border:1px solid var(--line)}table{width:100%;border-collapse:collapse;font-size:.85rem}th,td{text-align:left;padding:.75rem 1rem;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;background:var(--surface)}td:nth-child(n+3),th:nth-child(n+3){text-align:right;font-variant-numeric:tabular-nums}.event-list{display:grid;gap:.5rem}.event{display:grid;grid-template-columns:minmax(10rem,.7fr) 1fr 1fr;gap:1rem;padding:.8rem 0;border-bottom:1px solid var(--line);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem}.event time,.empty{color:var(--muted)}.page-error{margin:1rem 0;padding:1rem;border:1px solid var(--danger);color:var(--danger)}footer{padding:2rem clamp(1rem,4vw,4rem);color:var(--muted);font-size:.75rem;text-align:center}
-.section-desc{color:var(--muted);font-size:.85rem;margin-bottom:1.25rem}.user-add-form{display:flex;flex-wrap:wrap;gap:1rem;align-items:center}.input-field{flex:1;min-width:200px}.input-field input{width:100%;padding:.65rem 1rem;background:var(--surface);border:1px solid var(--line);color:var(--text);font:inherit;font-size:.9rem}.input-field input:focus{outline:2px solid var(--accent);border-color:transparent}.user-feedback{padding:.75rem 1rem;margin-top:.75rem;border:1px solid var(--line);font-size:.85rem}.user-feedback.success{border-color:var(--accent);color:var(--accent);background:rgba(142,227,176,.08)}.user-feedback.error{border-color:var(--danger);color:var(--danger);background:rgba(255,139,132,.08)}.badge{display:inline-block;padding:.2rem .5rem;font:700 .7rem ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.05em}.badge-allowed{color:var(--accent);border:1px solid var(--accent);background:rgba(142,227,176,.1)}.badge-blocked{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.1)}.btn-sm{font:inherit;font-size:.78rem;font-weight:600;padding:.35rem .75rem;cursor:pointer;border:0}.btn-allow{background:var(--accent);color:var(--bg)}.btn-revoke{background:transparent;color:var(--warn);border:1px solid var(--warn)}.btn-revoke:hover{background:rgba(255,207,112,.1)}.btn-del{background:transparent;color:var(--danger);border:1px solid var(--danger);margin-left:.4rem}.btn-del:hover{background:rgba(255,139,132,.1)}.user-meta{display:flex;flex-direction:column;gap:.2rem}.user-phone{font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.user-name{font-size:.8rem;color:var(--muted)}
+.section-desc{color:var(--muted);font-size:.85rem;margin-bottom:1.25rem}.user-add-form{display:flex;flex-wrap:wrap;gap:1rem;align-items:center}.input-field{flex:1;min-width:200px}.input-field input{width:100%;padding:.65rem 1rem;background:var(--surface);border:1px solid var(--line);color:var(--text);font:inherit;font-size:.9rem}.input-field input:focus{outline:2px solid var(--accent);border-color:transparent}.user-feedback{padding:.75rem 1rem;margin-top:.75rem;border:1px solid var(--line);font-size:.85rem}.user-feedback.success{border-color:var(--accent);color:var(--accent);background:rgba(142,227,176,.08)}.user-feedback.error{border-color:var(--danger);color:var(--danger);background:rgba(255,139,132,.08)}.badge{display:inline-block;padding:.2rem .5rem;font:700 .7rem ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.05em}.badge-allowed{color:var(--accent);border:1px solid var(--accent);background:rgba(142,227,176,.1)}.badge-blocked{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.1)}.btn-sm{font:inherit;font-size:.78rem;font-weight:600;padding:.35rem .75rem;cursor:pointer;border:0}.btn-allow{background:var(--accent);color:var(--bg)}.btn-revoke{background:transparent;color:var(--warn);border:1px solid var(--warn)}.btn-revoke:hover{background:rgba(255,207,112,.1)}.btn-del{background:transparent;color:var(--danger);border:1px solid var(--danger);margin-left:.4rem}.btn-del:hover{background:rgba(255,139,132,.1)}.btn-lead{background:transparent;color:var(--accent);border:1px solid var(--accent);margin-right:.4rem}.btn-lead:hover{background:rgba(142,227,176,.15)}.lead-badge{display:inline-flex;align-items:center;padding:.15rem .45rem;font:600 .75rem ui-monospace,monospace;color:var(--accent);background:rgba(142,227,176,.1);border:1px solid rgba(142,227,176,.25);cursor:pointer;border-radius:2px;margin-right:.4rem}.lead-badge:hover{background:rgba(142,227,176,.2);border-color:var(--accent)}.lead-presets{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.5rem}.btn-preset{font:inherit;font-size:.78rem;font-weight:600;background:var(--bg);color:var(--text);border:1px solid var(--line);padding:.3rem .6rem;cursor:pointer}.btn-preset:hover{border-color:var(--accent);color:var(--accent)}.btn-preset.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}.user-meta{display:flex;flex-direction:column;gap:.2rem}.user-phone{font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.user-name{font-size:.8rem;color:var(--muted)}
 .task-toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1rem}.task-filters{display:flex;flex-wrap:wrap;gap:.4rem}.filter-btn{font:inherit;font-size:.78rem;font-weight:600;background:var(--surface);color:var(--muted);border:1px solid var(--line);padding:.4rem .8rem;cursor:pointer}.filter-btn:hover{color:var(--text);border-color:var(--muted)}.filter-btn.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}.task-search{flex:1;min-width:220px;max-width:340px}.task-search input{width:100%;padding:.5rem .85rem;background:var(--surface);border:1px solid var(--line);color:var(--text);font:inherit;font-size:.85rem}.task-search input:focus{outline:2px solid var(--accent);border-color:transparent}.badge-pending{color:var(--warn);border:1px solid var(--warn);background:rgba(255,207,112,.1)}.badge-pending_deadline{color:#b3a0ff;border:1px solid #b3a0ff;background:rgba(179,160,255,.1)}.badge-resolved{color:var(--accent);border:1px solid var(--accent);background:rgba(142,227,176,.1)}.badge-cancelled{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.1)}.pill-count{display:inline-flex;align-items:center;gap:.25rem;font:600 .75rem ui-monospace,monospace;color:var(--muted);background:rgba(255,255,255,.05);padding:.15rem .45rem;margin-right:.3rem}.btn-detail{background:transparent;color:var(--accent);border:1px solid var(--accent);font-size:.78rem;font-weight:600;padding:.35rem .75rem;cursor:pointer}.btn-detail:hover{background:rgba(142,227,176,.15)}.subtask-label{font-size:.75rem;color:var(--muted);margin-top:.2rem;display:block}
 .task-modal{position:fixed;inset:0;margin:auto;max-width:760px;width:92%;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:1.5rem;box-shadow:0 20px 40px rgba(0,0,0,.6);z-index:100}.task-modal::backdrop{background:rgba(0,0,0,.75);backdrop-filter:blur(3px)}.modal-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;border-bottom:1px solid var(--line);padding-bottom:1rem}.modal-title{font-size:1.25rem;font-weight:650;line-height:1.3;margin:0}.modal-close{background:transparent;border:0;color:var(--muted);font-size:1.4rem;line-height:1;padding:.2rem .5rem;cursor:pointer}.modal-close:hover{color:var(--text)}.modal-body{max-height:calc(85vh - 5rem);overflow-y:auto;padding-top:1.25rem;display:flex;flex-direction:column;gap:1.5rem}.detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;background:rgba(0,0,0,.2);padding:1rem;border:1px solid var(--line)}.detail-grid dt{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}.detail-grid dd{margin:.25rem 0 0;font-size:.9rem;font-weight:500;word-break:break-word}.detail-card{border:1px solid var(--line);padding:1rem;background:rgba(0,0,0,.1)}.detail-card h4{margin:0 0 .75rem 0;font-size:.88rem;letter-spacing:.03em;color:var(--accent);text-transform:uppercase}.subtask-items{display:flex;flex-direction:column;gap:.5rem;margin:0;padding:0;list-style:none}.subtask-item{display:flex;justify-content:space-between;align-items:center;padding:.5rem .75rem;background:var(--bg);border:1px solid var(--line);font-size:.85rem}.attachment-card{border:1px solid var(--line);background:var(--bg);padding:.75rem;margin-bottom:.75rem}.attachment-header{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted);margin-bottom:.5rem}.attachment-name{font-weight:600;color:var(--text);font-family:ui-monospace,monospace}.ocr-box{background:var(--surface);border:1px solid var(--line);padding:.6rem .8rem;font-size:.78rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;color:#c0cdc5;max-height:160px;overflow-y:auto;margin-top:.5rem}.timeline{display:flex;flex-direction:column;gap:.8rem;border-left:2px solid var(--line);padding-left:1rem;margin-left:.5rem}.timeline-item{font-size:.8rem;position:relative}.timeline-item::before{content:"";position:absolute;left:-1.35rem;top:.35rem;width:8px;height:8px;border-radius:50%;background:var(--accent)}.timeline-time{color:var(--muted);font-family:ui-monospace,monospace;font-size:.72rem;margin-bottom:.2rem}.timeline-content{color:var(--text);line-height:1.4}.parent-pill{display:inline-block;padding:.4rem .75rem;background:rgba(142,227,176,.08);border:1px solid var(--line);font-size:.82rem}
 .mt-sm{margin-top:1.25rem}.mt-md{margin-top:1.5rem}.mb-md{margin-bottom:1.5rem}.ml-xs{margin-left:.5rem}.col-id{width:4.5rem}.text-right{text-align:right}.block-eyebrow{margin-bottom:.25rem;display:block}
@@ -271,6 +300,24 @@ const errors=el('errors');errors.replaceChildren();if(!data.recentErrors.length)
 
 function showUserFeedback(msg,isErr=false){const fb=el('user-feedback');fb.textContent=msg;fb.className='user-feedback '+(isErr?'error':'success');fb.hidden=false;setTimeout(()=>{fb.hidden=true},5000)}
 
+let activeLeadUser=null;
+function openLeadTimeModal(u){
+  activeLeadUser=u;
+  const modal=el('lead-modal');
+  const title=el('lead-modal-title');
+  const input=el('lead-minutes-input');
+  title.textContent='Atur Lead Time: +'+u.phoneNumber+(u.name?' ('+u.name+')':'');
+  input.value=u.leadReminderMinutes||10;
+  document.querySelectorAll('.btn-preset').forEach(btn=>{
+    if(parseInt(btn.dataset.mins,10)===Number(input.value)){
+      btn.classList.add('active');
+    }else{
+      btn.classList.remove('active');
+    }
+  });
+  modal.showModal();
+}
+
 function renderUsers(users){
 const tbody=el('users-table-body');tbody.replaceChildren();
 text('user-count-badge',users.length+' USERS');
@@ -279,10 +326,16 @@ for(const u of users){
 const tr=document.createElement('tr');
 const tdUser=document.createElement('td');const meta=document.createElement('div');meta.className='user-meta';const phone=document.createElement('span');phone.className='user-phone';phone.textContent='+'+u.phoneNumber;const name=document.createElement('span');name.className='user-name';name.textContent=u.name||'(Belum set nama)';meta.append(phone,name);tdUser.append(meta);
 const tdStatus=document.createElement('td');const badge=document.createElement('span');badge.className='badge '+(u.isAllowed?'badge-allowed':'badge-blocked');badge.textContent=u.isAllowed?'DIIZINKAN':'DIBATASI';tdStatus.append(badge);
-const tdSettings=document.createElement('td');tdSettings.textContent=u.leadReminderMinutes+'m reminder · Pagi: '+(u.morningDigestEnabled?u.morningDigestTime:'off');
+const tdSettings=document.createElement('td');
+const leadBadge=document.createElement('button');leadBadge.type='button';leadBadge.className='lead-badge';leadBadge.textContent='⏱️ '+u.leadReminderMinutes+'m';leadBadge.title='Klik untuk ubah lead time pengingat';
+leadBadge.onclick=()=>openLeadTimeModal(u);
+const digestSpan=document.createElement('span');digestSpan.textContent=' · Pagi: '+(u.morningDigestEnabled?u.morningDigestTime:'off');
+tdSettings.append(leadBadge,digestSpan);
 const tdTasks=document.createElement('td');tdTasks.textContent=number(u.taskCount);
 const tdCreated=document.createElement('td');tdCreated.textContent=u.createdAt?new Date(u.createdAt).toLocaleDateString('id-ID'):'—';
 const tdAction=document.createElement('td');tdAction.className='text-right';
+const btnLead=document.createElement('button');btnLead.type='button';btnLead.className='btn-sm btn-lead';btnLead.textContent='⏱️ Lead Time';btnLead.title='Atur lead time pengingat untuk nomor ini';
+btnLead.onclick=()=>openLeadTimeModal(u);
 const btnToggle=document.createElement('button');btnToggle.type='button';btnToggle.className='btn-sm '+(u.isAllowed?'btn-revoke':'btn-allow');btnToggle.textContent=u.isAllowed?'Cabut Akses':'Izinkan';btnToggle.onclick=async()=>{
   btnToggle.disabled=true;try{const res=await fetch('/api/users/toggle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userJid:u.userJid})});const data=await res.json();if(data.success){showUserFeedback('Status akses '+u.phoneNumber+' berhasil diperbarui.');await loadUsers();await loadSnapshot()}else{showUserFeedback(data.error||'Gagal update status',true)}}catch{showUserFeedback('Terjadi kesalahan jaringan',true)}finally{btnToggle.disabled=false}
 };
@@ -290,7 +343,7 @@ const btnDel=document.createElement('button');btnDel.type='button';btnDel.classN
   if(!confirm('Hapus kontak '+u.phoneNumber+' dari database? Semua data terkait pengguna ini akan dihapus.'))return;
   btnDel.disabled=true;try{const res=await fetch('/api/users/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userJid:u.userJid})});const data=await res.json();if(data.success){showUserFeedback('Kontak '+u.phoneNumber+' berhasil dihapus.');await loadUsers();await loadSnapshot()}else{showUserFeedback(data.error||'Gagal menghapus kontak',true)}}catch{showUserFeedback('Terjadi kesalahan jaringan',true)}finally{btnDel.disabled=false}
 };
-tdAction.append(btnToggle,btnDel);
+tdAction.append(btnLead,btnToggle,btnDel);
 tr.append(tdUser,tdStatus,tdSettings,tdTasks,tdCreated,tdAction);tbody.append(tr)}
 }
 
@@ -839,6 +892,59 @@ el('tasks-next-btn').addEventListener('click',()=>{
 
 el('modal-close-btn').addEventListener('click',()=>el('task-modal').close());
 el('task-modal').addEventListener('click',(e)=>{if(e.target===el('task-modal'))el('task-modal').close()});
+
+el('lead-modal-close-btn').addEventListener('click',()=>el('lead-modal').close());
+el('lead-modal-cancel').addEventListener('click',()=>el('lead-modal').close());
+el('lead-modal').addEventListener('click',(e)=>{if(e.target===el('lead-modal'))el('lead-modal').close()});
+
+document.querySelectorAll('.btn-preset').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.btn-preset').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    el('lead-minutes-input').value=btn.dataset.mins;
+  });
+});
+
+el('lead-minutes-input').addEventListener('input',()=>{
+  const val=parseInt(el('lead-minutes-input').value,10);
+  document.querySelectorAll('.btn-preset').forEach(b=>{
+    if(parseInt(b.dataset.mins,10)===val){
+      b.classList.add('active');
+    }else{
+      b.classList.remove('active');
+    }
+  });
+});
+
+el('lead-modal-save').addEventListener('click',async()=>{
+  if(!activeLeadUser)return;
+  const mins=parseInt(el('lead-minutes-input').value,10);
+  if(isNaN(mins)||mins<1||mins>1440){
+    alert('Lead time pengingat harus berupa angka antara 1 sampai 1440 menit (maksimal 24 jam).');
+    return;
+  }
+  const saveBtn=el('lead-modal-save');
+  saveBtn.disabled=true;
+  try{
+    const res=await fetch('/api/users/lead-time',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({userJid:activeLeadUser.userJid,leadMinutes:mins})
+    });
+    const data=await res.json();
+    if(data.success){
+      showUserFeedback('Lead time reminder untuk '+activeLeadUser.phoneNumber+' berhasil diatur menjadi '+mins+' menit!');
+      el('lead-modal').close();
+      await loadUsers();
+    }else{
+      showUserFeedback(data.error||'Gagal mengubah lead time',true);
+    }
+  }catch{
+    showUserFeedback('Terjadi kesalahan jaringan',true);
+  }finally{
+    saveBtn.disabled=false;
+  }
+});
 
 load();setInterval(load,60000);
 `;

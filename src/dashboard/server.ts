@@ -247,6 +247,26 @@ export async function addUserToWhitelist(db: any, phone: string, name?: string) 
   return { ...inserted[0], phoneNumber: userJid.replace('@s.whatsapp.net', '') };
 }
 
+export async function updateUserLeadReminderMinutes(db: any, userJid: string, leadMinutes: number) {
+  if (!db) throw new Error('Database not configured');
+  if (isNaN(leadMinutes) || leadMinutes < 1 || leadMinutes > 1440) {
+    throw new Error('Lead time pengingat harus berupa angka antara 1 sampai 1440 menit (maks 24 jam)');
+  }
+  const updated = await db
+    .update(userSettings)
+    .set({
+      leadReminderMinutes: leadMinutes,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userJid, userJid))
+    .returning();
+
+  if (!updated.length || !updated[0]) {
+    return null;
+  }
+  return { ...updated[0], phoneNumber: userJid.replace('@s.whatsapp.net', '') };
+}
+
 export async function deleteDashboardUser(db: any, userJid: string) {
   if (!db) throw new Error('Database not configured');
   await db.delete(tasks).where(eq(tasks.userJid, userJid));
@@ -877,6 +897,26 @@ export function createDashboardHandler(options: {
           return Response.json({ success: true, user }, { headers: secureHeaders('application/json; charset=utf-8') });
         } catch (err: any) {
           return Response.json({ error: err?.message || 'FAILED_TO_ADD_USER' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
+      if (pathname === '/api/users/lead-time') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (!body?.userJid) {
+            return Response.json({ error: 'MISSING_USER_JID' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const leadMinutes = Number(body?.leadMinutes);
+          if (isNaN(leadMinutes) || leadMinutes < 1 || leadMinutes > 1440) {
+            return Response.json({ error: 'INVALID_LEAD_MINUTES' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const user = await updateUserLeadReminderMinutes(options.db, body.userJid, leadMinutes);
+          if (!user) {
+            return Response.json({ error: 'USER_NOT_FOUND' }, { status: 404, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          return Response.json({ success: true, user }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json({ error: err?.message || 'FAILED_TO_UPDATE_LEAD_TIME' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
         }
       }
 
