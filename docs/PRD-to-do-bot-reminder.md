@@ -77,6 +77,29 @@ A lightweight WhatsApp bot designed to help users capture and manage their tasks
 *   **`/batal <ID>` / `hapus <ID>`**: Cancels a task, marking status `cancelled`.
 *   **`/help` / `bantuan`**: Displays a warm, non-technical guide explaining how to use the bot.
 
+### Feature 7: Opt-in Daily Morning Task Digest
+*   **Trigger:** Scheduled background worker running on local date/time per user.
+*   **Behavior:** Default-nya nonaktif. Pengguna mengaktifkan melalui `/pagi aktif` dan dapat mengatur jam lokal via `/pagi waktu HH:mm` (default 06:00).
+*   **Content:** Menyapa pengguna, menampilkan seluruh tugas aktif yang jatuh tempo pada hari lokal tersebut (diurutkan berdasarkan deadline ascending), dan ditutup satu pantun/kalimat motivasi penyemangat yang di-cache per tanggal (dihasilkan oleh Gemini atau koleksi pantun lokal).
+*   **Tracking:** Menggunakan tabel `daily_digest_deliveries` untuk memastikan tepat satu pengiriman per hari per pengguna (idempotent).
+
+### Feature 8: Secure Media Attachment & Image Quality Modes
+*   **Upload:** Pengguna dapat mengirim foto atau file PDF (baik sebagai tugas baru maupun lampiran pada tugas yang sudah ada).
+*   **Pipeline:**
+    *   Layer 1: Binary validation magic bytes (`file-type`), memblokir file berbahaya (SVG, EXE).
+    *   Layer 2: Content Disarming & Reconstruction (CDR) via `sharp`, membuang metadata EXIF/GPS pribadi dan mencegah serangan dekompresi *pixel flood*.
+    *   Layer 3: Gemini Vision OCR dan screening penipuan/phishing.
+    *   Layer 4: Penyimpanan ke S3 Object Storage (Rust FS / MinIO) atau penyimpanan lokal terisolasi (`0o600`).
+*   **Image Quality Mode:**
+    *   `high` (Default): Resolusi maksimal disimpan hingga 4096px (4K) dengan quality 85.
+    *   `compact`: Resolusi maksimal disimpan hingga 2048px (2K) dengan quality 85 untuk hemat kuota/storage.
+    *   Perintah pengguna: `/setting media tinggi` dan `/setting media hemat`.
+
+### Feature 9: Lightweight Monitoring Dashboard & Telemetry
+*   **Dashboard:** Web dashboard internal pada port 3080 (`DASHBOARD_PORT`), default nonaktif (`DASHBOARD_ENABLED=false`).
+*   **Security:** Dilindungi oleh HTTP Basic Authentication (`DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`), terikat pada loopback (`127.0.0.1`), read-only.
+*   **Metrics:** Memantau status uptime, koneksi Baileys socket WhatsApp, koneksi PostgreSQL, penggunaan memori RAM, jumlah tugas aktif, serta telemetri agregat per jam (`telemetry_hourly`) dan error event terfilter (`telemetry_events`).
+
 ## 4. Database Schema (PostgreSQL via Drizzle)
 
 ### Table: `user_settings`
@@ -87,6 +110,10 @@ A lightweight WhatsApp bot designed to help users capture and manage their tasks
 | `timezone` | VARCHAR(64) | Default: `'Asia/Jakarta'` | User timezone for date parsing and display |
 | `lead_reminder_minutes` | INTEGER | Default: `30` | Default advance reminder lead time in minutes |
 | `is_allowed` | BOOLEAN | Default: `false` | Access whitelist control |
+| `morning_digest_enabled` | BOOLEAN | Default: `false` | Opt-in morning task summary flag |
+| `morning_digest_time` | VARCHAR(5) | Default: `'06:00'` | Configured local time for morning digest |
+| `morning_digest_updated_at` | TIMESTAMPTZ | Default: `NOW()` | Timestamp when morning digest settings were updated |
+| `image_quality_mode` | VARCHAR(32) | Default: `'high'` | Image attachment quality mode (`high` = 4K max, `compact` = 2K max) |
 | `created_at` | TIMESTAMPTZ | Default: `NOW()` | Registration timestamp |
 | `updated_at` | TIMESTAMPTZ | Default: `NOW()` | Last configuration update timestamp |
 
@@ -94,6 +121,7 @@ A lightweight WhatsApp bot designed to help users capture and manage their tasks
 | Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
 | `id` | SERIAL | PK | Auto-increment task ID |
+| `parent_id` | INTEGER | References `tasks(id)` ON DELETE CASCADE | Optional parent task ID for hierarchical subtasks |
 | `user_jid` | VARCHAR(128) | References `user_settings(user_jid)` | Owner of the task |
 | `task` | TEXT | Not Null | Task description cleaned of temporal markers |
 | `deadline` | TIMESTAMPTZ | Nullable | Scheduled completion deadline |
@@ -110,6 +138,76 @@ A lightweight WhatsApp bot designed to help users capture and manage their tasks
 | `task_id` | INTEGER | References `tasks(id)` ON DELETE CASCADE | Associated task ID |
 | `message_id` | VARCHAR(128) | Not Null, Index | WhatsApp message ID (`key.id`) sent by bot |
 | `created_at` | TIMESTAMPTZ | Default: `NOW()` | Message dispatch timestamp |
+
+### Table: `task_attachments`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PK | Auto-increment ID |
+| `task_id` | INTEGER | References `tasks(id)` ON DELETE CASCADE | Associated task ID |
+| `user_jid` | VARCHAR(128) | References `user_settings(user_jid)` | Owner WhatsApp JID |
+| `file_name` | VARCHAR(255) | Not Null | Sanitized file name |
+| `file_type` | VARCHAR(32) | Not Null | `image` or `document` |
+| `mime_type` | VARCHAR(128) | Not Null | MIME type (`image/jpeg`, `application/pdf`) |
+| `file_size` | INTEGER | Not Null | File size in bytes |
+| `storage_path` | TEXT | Not Null | S3 URI or sandboxed disk path |
+| `sha256_hash` | VARCHAR(64) | Not Null | SHA-256 checksum |
+| `safety_status` | VARCHAR(32) | Default: `'safe'` | `safe`, `suspicious`, `rejected` |
+| `ocr_extracted_text` | TEXT | Nullable | OCR text from Gemini Vision |
+| `created_at` | TIMESTAMPTZ | Default: `NOW()` | Creation timestamp |
+
+### Table: `task_history`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PK | Auto-increment ID |
+| `task_id` | INTEGER | References `tasks(id)` ON DELETE CASCADE | Associated task ID |
+| `user_jid` | VARCHAR(128) | References `user_settings(user_jid)` | Modifier JID |
+| `change_type` | VARCHAR(32) | Not Null | `create`, `reschedule`, `rename`, `resolve`, `cancel`, `attachment` |
+| `field_changed` | VARCHAR(64) | Not Null | Field name |
+| `old_value` | TEXT | Nullable | Previous state value |
+| `new_value` | TEXT | Nullable | Updated state value |
+| `raw_input` | TEXT | Nullable | Raw user input string |
+| `created_at` | TIMESTAMPTZ | Default: `NOW()` | Audit timestamp |
+
+### Table: `daily_digest_deliveries`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PK | Auto-increment ID |
+| `user_jid` | VARCHAR(128) | References `user_settings(user_jid)` | Recipient JID |
+| `local_date` | DATE | Not Null | Local date of digest |
+| `status` | VARCHAR(32) | Default: `'claimed'` | `claimed`, `sent`, `failed` |
+| `message_id` | VARCHAR(128) | Nullable | WhatsApp message ID |
+| `task_count` | INTEGER | Default: `0` | Number of tasks in digest |
+| `created_at` | TIMESTAMPTZ | Default: `NOW()` | Claim timestamp |
+| `delivered_at` | TIMESTAMPTZ | Nullable | Dispatch timestamp |
+
+### Table: `daily_motivations`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PK | Auto-increment ID |
+| `motivation_date` | DATE | Unique, Not Null | Date of daily pantun |
+| `content` | TEXT | Not Null | Motivation text |
+| `source` | VARCHAR(32) | Default: `'gemini'` | `gemini` or `fallback` |
+| `model` | VARCHAR(64) | Nullable | AI model name |
+| `prompt_tokens` | INTEGER | Default: `0` | Token usage |
+| `candidate_tokens` | INTEGER | Default: `0` | Token usage |
+| `total_tokens` | INTEGER | Default: `0` | Token usage |
+| `created_at` | TIMESTAMPTZ | Default: `NOW()` | Creation timestamp |
+
+### Table: `telemetry_hourly`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PK | Auto-increment ID |
+| `metric_name` | VARCHAR(128) | Not Null | Metric identifier |
+| `bucket_hour` | TIMESTAMPTZ | Not Null | Hour bucket |
+| `count_value` | BIGINT | Default: `0` | Aggregated count |
+
+### Table: `telemetry_events`
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | SERIAL | PK | Auto-increment ID |
+| `event_type` | VARCHAR(64) | Not Null | Event type (e.g. `error`) |
+| `payload` | TEXT | Not Null | Sanitized JSON payload |
+| `occurred_at` | TIMESTAMPTZ | Default: `NOW()` | Event timestamp |
 
 ## 5. Implementation Architecture & Directory Layout
 ```text

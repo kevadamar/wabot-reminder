@@ -132,15 +132,27 @@ export async function validateMediaBuffer(buffer: Buffer, claimedMime?: string):
   };
 }
 
+export interface SanitizeImageOptions {
+  maxDimension?: number;
+  quality?: number;
+}
+
 /**
  * Sanitizes image buffer via Content Disarming & Reconstruction (CDR) with Sharp (Layer 2)
- * Strips EXIF/GPS, removes hidden chunks, and normalizes pixels.
+ * Strips EXIF/GPS, removes hidden chunks, normalizes pixels, and scales within max bounding box.
+ * Default max dimension is 4096 (High quality / 4K), compact is 2048 (2K).
  */
-export async function sanitizeImageBuffer(buffer: Buffer): Promise<SanitizedMediaResult> {
+export async function sanitizeImageBuffer(
+  buffer: Buffer,
+  options?: SanitizeImageOptions
+): Promise<SanitizedMediaResult> {
+  const maxDim = options?.maxDimension ?? 4096;
+  const quality = options?.quality ?? 85;
+
   const cleanBuffer = await sharp(buffer)
     .rotate() // Auto-orient based on EXIF before stripping
-    .resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 85, progressive: true, force: false })
+    .resize({ width: maxDim, height: maxDim, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality, progressive: true, force: false })
     .toBuffer();
 
   const sha256Hash = crypto.createHash('sha256').update(cleanBuffer).digest('hex');

@@ -85,6 +85,13 @@ TIMEZONE=Asia/Jakarta
 
 # Lead Time Pengingat Default (Menit)
 DEFAULT_REMINDER_LEAD_MINUTES=30
+
+# Dashboard read-only (opsional, default nonaktif)
+DASHBOARD_ENABLED=false
+DASHBOARD_HOST=127.0.0.1
+DASHBOARD_PORT=3080
+DASHBOARD_USERNAME=admin
+DASHBOARD_PASSWORD=use-a-random-password-at-least-16-chars
 ```
 
 ### 3. Migrasi Database
@@ -120,7 +127,18 @@ Saat pertama kali dijalankan, **QR Code** akan muncul di terminal. Pindai (scan)
 | `subtask <ID> <teks>` | Menambahkan sub-tugas langsung ke ID tugas utama | `subtask 5 Siapkan materi slide jam 9 pagi` |
 | `/selesai <ID>` | Menandai tugas telah selesai & afirmasi positif | `selesai 5` |
 | `/batal <ID>` | Membatalkan tugas beserta sub-tugas aktifnya | `batal 5` |
+| `/pagi aktif` | Mengaktifkan ringkasan task harian (default 06:00 lokal) | `/pagi aktif` |
+| `/pagi nonaktif` | Menonaktifkan ringkasan pagi tanpa menghapus waktu pilihan | `/pagi nonaktif` |
+| `/pagi waktu HH:mm` | Mengatur waktu lokal ringkasan pagi | `/pagi waktu 06:30` |
+| `/pagi status` | Melihat status, waktu, dan timezone ringkasan pagi | `/pagi status` |
+| `/setting media` | Mengecek status kualitas gambar lampiran saat ini | `/setting media` |
+| `/setting media tinggi` | Kualitas tinggi (Maks 4K / 4096px, default, quality 85) | `/setting media tinggi` |
+| `/setting media hemat` | Kualitas hemat (Maks 2K / 2048px, quality 85) | `/setting media hemat` |
 | `/help` atau `bantuan` | Menampilkan panduan lengkap interaksi | `bantuan` |
+
+Ringkasan pagi bersifat **opt-in** dan default-nya nonaktif. Bot hanya memanggil AI ketika minimal satu user aktif benar-benar due. Satu pantun pendek di-cache per tanggal dan dipakai ulang; jika AI timeout atau gagal, bot langsung memakai pantun lokal.
+
+Kualitas gambar lampiran default-nya adalah **tinggi (high / 4K max)** dengan sanitasi CDR (menghapus GPS/EXIF dan proteksi pixel flood). Pengguna dapat mengubahnya menjadi hemat (2K max) kapan saja via `/setting media hemat`.
 
 ### 🔄 2. Format Balas Pesan (Quoted Reply)
 Pengguna dapat langsung mengutip (quote/reply) balon pesan bot untuk melakukan perubahan cepat:
@@ -195,17 +213,31 @@ OWNER_NUMBER=628123456789
 TIMEZONE=Asia/Jakarta
 DEFAULT_REMINDER_LEAD_MINUTES=30
 
+# Dashboard monitoring read-only (opsional)
+DASHBOARD_ENABLED=false
+DASHBOARD_HOST=127.0.0.1
+DASHBOARD_PORT=3080
+DASHBOARD_USERNAME=admin
+DASHBOARD_PASSWORD=replace-with-a-random-password-at-least-16-chars
+TELEMETRY_FLUSH_INTERVAL_MS=60000
+
 # Konfigurasi Storage Lampiran (S3 Rust FS / MinIO)
 STORAGE_DRIVER=s3
 S3_ENDPOINT=http://rust-s3:9000
 S3_BUCKET=todo-attachments
-S3_ACCESS_KEY=rustfsadmin_S3rver5
-S3_SECRET_KEY=5zbrhw9z3mep4bkp_53cRets
+S3_ACCESS_KEY=your_s3_access_key
+S3_SECRET_KEY=your_s3_secret_key
 S3_REGION=us-east-1
 S3_FORCE_PATH_STYLE=true
 ```
 > **Tips S3 Rust FS di Dokploy / Docker Network:** Karena container bot dan container S3 Rust Anda berada di mesin VPS yang sama dalam Docker network, Anda cukup menggunakan hostname container S3 (misal: `http://rust-s3:9000`). Latensi akses file instan (<5ms) dan data 100% aman di server sendiri.
 > **Tips Database di Dokploy:** Jika Anda menggunakan fitur *PostgreSQL Database* bawaan Dokploy, Anda bisa memasukkan koneksi internal Docker network Dokploy secara langsung ke `DATABASE_URL`.
+
+### Dashboard monitoring
+
+Dashboard tidak aktif sampai `DASHBOARD_ENABLED=true` dan username/password valid tersedia. Default bind `127.0.0.1` hanya cocok bila tunnel/proxy berjalan di host atau network namespace yang sama. Untuk container yang diakses melalui private reverse proxy, gunakan `DASHBOARD_HOST=0.0.0.0`, jangan publish port langsung ke internet, dan tempatkan endpoint di belakang HTTPS serta Cloudflare Access/VPN.
+
+Dashboard hanya menyediakan aggregate task status, adoption, storage, runtime health, telemetry 24 jam, dan error code tersanitasi. JID, isi task/pesan, prompt/response AI, OCR text, nama file, serta storage path tidak dikirim ke UI.
 
 ### 4. Deploy & Scan QR Code
 1. Klik **Deploy**.

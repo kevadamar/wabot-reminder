@@ -53,6 +53,26 @@ export async function ensureUserSettings(
 }
 
 /**
+ * Updates the image quality mode for a user ('high' or 'compact')
+ */
+export async function updateImageQualityMode(
+  db: any,
+  userJid: string,
+  mode: 'high' | 'compact'
+): Promise<UserSetting | null> {
+  const updated = await db
+    .update(userSettings)
+    .set({
+      imageQualityMode: mode,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userJid, userJid))
+    .returning();
+
+  return updated[0] ?? null;
+}
+
+/**
  * Creates a new task in database
  */
 export async function createTask(db: any, input: CreateTaskInput): Promise<Task> {
@@ -300,6 +320,7 @@ export async function rescheduleTask(
     newDeadline: Date;
     rawInput?: string;
     leadMinutes?: number;
+    now?: Date;
   }
 ): Promise<{ updatedTask: Task; oldDeadline: Date | null } | null> {
   const existing = await db
@@ -312,8 +333,12 @@ export async function rescheduleTask(
   if (!task) return null;
 
   const oldDeadline = task.deadline ? new Date(task.deadline) : null;
-  const remindAt = calculateRemindAt(params.newDeadline, { leadMinutes: params.leadMinutes ?? 30 });
-  const isFuture = params.newDeadline.getTime() > Date.now();
+  const now = params.now ?? new Date();
+  const remindAt = calculateRemindAt(params.newDeadline, {
+    leadMinutes: params.leadMinutes ?? 30,
+    now,
+  });
+  const isFuture = params.newDeadline.getTime() > now.getTime();
 
   const updated = await db
     .update(tasks)
@@ -503,4 +528,3 @@ export async function getTaskAttachments(db: any, taskId: number): Promise<TaskA
     .where(eq(taskAttachments.taskId, taskId))
     .orderBy(desc(taskAttachments.createdAt));
 }
-

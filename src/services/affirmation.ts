@@ -2,6 +2,7 @@ import fallbackAffirmations from '../data/affirmations.json';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config/index.js';
 import { callAntigravityBridge } from './nlp.js';
+import { recordAiUsage, telemetry } from './telemetry.js';
 
 let defaultGeminiClient: any = null;
 function getGeminiClient() {
@@ -27,6 +28,7 @@ export async function generateAffirmation(taskName: string, customClient?: any):
   const gemini = customClient !== undefined ? customClient : getGeminiClient();
 
   if (gemini) {
+    const startedAt = performance.now();
     try {
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Gemini API timeout (3s)')), 3000)
@@ -47,9 +49,28 @@ export async function generateAffirmation(taskName: string, customClient?: any):
 
       const text = response.text?.trim();
       if (text) {
+        const usage = response.usageMetadata ?? {};
+        recordAiUsage(telemetry, {
+          operation: 'affirmation',
+          provider: 'gemini',
+          outcome: 'success',
+          durationMs: performance.now() - startedAt,
+          usage: {
+            promptTokens: usage.promptTokenCount,
+            outputTokens: usage.candidatesTokenCount,
+            thoughtTokens: usage.thoughtsTokenCount,
+            totalTokens: usage.totalTokenCount,
+          },
+        });
         return text.replace(/^["']|["']$/g, '');
       }
     } catch (err: any) {
+      recordAiUsage(telemetry, {
+        operation: 'affirmation',
+        provider: 'gemini',
+        outcome: String(err?.message || '').includes('timeout') ? 'timeout' : 'failed',
+        durationMs: performance.now() - startedAt,
+      });
       console.warn(`[Affirmation] Gemini error (${err?.message || err}), beralih ke opsi fallback...`);
     }
   }
@@ -63,5 +84,6 @@ export async function generateAffirmation(taskName: string, customClient?: any):
   }
 
   // Tier 3: Local Offline Affirmations
+  telemetry.increment('ai_fallback_total', { operation: 'affirmation', provider: 'local', outcome: 'selected' });
   return getRandomFallbackAffirmation();
 }

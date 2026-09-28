@@ -66,6 +66,10 @@ flowchart TD
 | **NLP Service** | `src/services/nlp.ts` | Classifies task intent, strips conversational noise, normalizes Indonesian temporal phrases, extracts deadline timestamps, and delegates to Gemini with local fallback. |
 | **Task Service** | `src/services/task.ts` | Handles database operations (`tasks`, `task_messages`, `user_settings`), status transitions (`pending_deadline`, `pending`, `resolved`, `cancelled`), and message-to-task correlation. |
 | **Reminder Worker** | `src/services/reminder.ts` | Calculates adaptive `remind_at` offsets, queries due and overdue tasks every 60 seconds, dispatches alerts, and updates notification flags. |
+| **Morning Digest** | `src/services/morning-digest.ts` | Dispatches opt-in daily morning task summaries at configured local time with cached AI/local pantun motivation. |
+| **Media Service** | `src/services/media.ts` | Multi-layer media validation (magic bytes), CDR sanitization via Sharp (configurable 4K high vs 2K compact), S3/local storage, and AI screening. |
+| **Telemetry Service** | `src/services/telemetry.ts` | Records hourly aggregated runtime metrics, sanitizes and logs error events, and feeds dashboard telemetry. |
+| **Monitoring Dashboard** | `src/dashboard/server.ts` | Lightweight HTTP Basic Auth web dashboard (port 3080) for real-time monitoring of bot status, socket, memory, tasks, and telemetry. |
 | **Affirmation Service** | `src/services/affirmation.ts` | Produces positive congratulatory feedback tailored to the completed task using Gemini 1.5 Flash or local curated Indonesian affirmations. |
 | **Database Pool** | `src/db/index.ts` & `src/db/schema.ts` | Configures `postgres.js` connection pool and declares type-safe Drizzle ORM schemas. |
 
@@ -188,6 +192,10 @@ erDiagram
         varchar timezone "User timezone (default: Asia/Jakarta)"
         int lead_reminder_minutes "Default advance reminder notice (default: 30)"
         boolean is_allowed "Access control flag (whitelist)"
+        boolean morning_digest_enabled "Opt-in daily morning digest flag (default: false)"
+        varchar morning_digest_time "Configured local digest time (default: 06:00)"
+        timestamptz morning_digest_updated_at "Last update timestamp for digest"
+        varchar image_quality_mode "Image quality mode (high: 4K default | compact: 2K)"
         timestamptz created_at "Registration timestamp"
         timestamptz updated_at "Last update timestamp"
     }
@@ -238,6 +246,43 @@ erDiagram
         text raw_input "User's raw command or reply text"
         timestamptz created_at "Timestamp"
     }
+
+    daily_digest_deliveries {
+        serial id PK "Auto-increment ID"
+        varchar user_jid FK "Foreign key to user_settings"
+        date local_date "User local date for digest"
+        varchar status "claimed | sent | failed"
+        varchar message_id "WhatsApp message ID"
+        int task_count "Number of tasks included"
+        timestamptz created_at "Timestamp"
+        timestamptz delivered_at "Delivery timestamp"
+    }
+
+    daily_motivations {
+        serial id PK "Auto-increment ID"
+        date motivation_date "Calendar date for pantun"
+        text content "Generated or fallback pantun"
+        varchar source "gemini | fallback"
+        varchar model "Model used"
+        int prompt_tokens "Prompt token usage"
+        int candidate_tokens "Candidate token usage"
+        int total_tokens "Total token usage"
+        timestamptz created_at "Timestamp"
+    }
+
+    telemetry_hourly {
+        serial id PK "Auto-increment ID"
+        varchar metric_name "Metric key"
+        timestamptz bucket_hour "Truncated hour timestamp"
+        bigint count_value "Aggregated count"
+    }
+
+    telemetry_events {
+        serial id PK "Auto-increment ID"
+        varchar event_type "Event type"
+        text payload "Sanitized JSON payload"
+        timestamptz occurred_at "Timestamp"
+    }
 ```
 
 ---
@@ -246,13 +291,13 @@ erDiagram
 
 1. **Multi-Layer Media & Attachment Security Pipeline**:
    - **Layer 1: Magic Bytes / Binary Gatekeeper (`file-type`)**: Validates real file signature against whitelist (`image/jpeg`, `image/png`, `image/webp`, `application/pdf`). Explicitly blocks executable binaries and text vectors like SVG/XML (XSS vectors). Enforces size caps (5MB images, 10MB PDFs).
-   - **Layer 2: Content Disarming & Reconstruction (CDR) with Sharp**: Strips dangerous hidden chunks, auto-orients, and sanitizes images into pure, normalized JPEGs, neutralizing polyglots and steganography.
+   - **Layer 2: Content Disarming & Reconstruction (CDR) with Sharp**: Strips dangerous hidden chunks, auto-orients, and sanitizes images into pure, normalized JPEGs, neutralizing polyglots and steganography. Menjaga batas dimensi aman (`fit: 'inside'`, `withoutEnlargement: true`) dengan mode High 4K (4096px, default) atau Compact 2K (2048px) untuk mencegah serangan dekompresi *Pixel Flood / Decompression Bomb*.
    - **Layer 3: Gemini Multimodal AI Screening & OCR**: Inspects visual content for fraudulent bank transfers, scam/phishing indicators, and malicious links before acceptance. Performs OCR extraction on physical invoices and notes.
    - **Layer 4: S3 Object Storage (Rust FS) & Sandboxed Local Storage**: Mendukung S3-compatible Object Storage (container Rust FS / MinIO via internal Docker network) serta penyimpanan lokal terisolasi (`./storage/attachments/YYYY/MM/UUID.ext`) dengan izin akses ketat (`0o600`).
    - **Direct Media Reminder Dispatcher**: Saat interval pengingat tiba, jika tugas memiliki lampiran gambar atau dokumen, bot mengambil buffer file dari S3 Rust FS (atau local storage) dan mengirimkannya langsung ke WhatsApp dengan teks pengingat ramah sebagai caption. ID pesan yang terkirim dihubungkan ke `task_messages` sehingga reaksi emoji (✅ / ❌) pada balon media berfungsi penuh.
-2. **Network Attack Surface**:
-   - Zero inbound listening HTTP ports. Baileys connects exclusively via an outbound WebSocket directly to WhatsApp infrastructure (`*.whatsapp.net`).
-   - The bot server is immune to internet-wide port scans, external HTTP exploits, or unauthorized webhooks.
+2. **Network Attack Surface & Monitoring Dashboard**:
+   - Zero public inbound ports for the bot core. Baileys connects exclusively via an outbound WebSocket directly to WhatsApp infrastructure (`*.whatsapp.net`).
+   - **Lightweight Monitoring Dashboard (`src/dashboard/`)**: Dashboard monitoring operasional internal pada port 3080 (`DASHBOARD_PORT`). Bersifat opsional (`DASHBOARD_ENABLED=false` secara default), dilindungi oleh HTTP Basic Authentication (`DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`), terikat pada loopback (`127.0.0.1`), dan hanya menyediakan akses *read-only* ke ringkasan metrik kesehatan sistem, uptime, memory, socket status, dan telemetri database tanpa kemampuan mutasi data.
 3. **Database Isolation**:
    - PostgreSQL connections use credentialed TCP (`DATABASE_URL`).
    - Can run entirely inside Docker network bridges or bind strictly to `localhost:5432`.

@@ -1,6 +1,7 @@
 import * as chrono from 'chrono-node';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config/index.js';
+import { recordAiUsage, telemetry } from './telemetry.js';
 
 export interface ParseResult {
   isTask: boolean;
@@ -265,6 +266,7 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
   // 3. Tier 1: Try Gemini Structured Extraction if client is configured
   const gemini = options.geminiClient !== undefined ? options.geminiClient : getGeminiClient();
   if (gemini) {
+    const startedAt = performance.now();
     try {
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Gemini API timeout (3s)')), 3000)
@@ -287,6 +289,20 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
       const cleanedJson = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanedJson);
 
+      const usage = response.usageMetadata ?? {};
+      recordAiUsage(telemetry, {
+        operation: 'nlp_parse',
+        provider: 'gemini',
+        outcome: 'success',
+        durationMs: performance.now() - startedAt,
+        usage: {
+          promptTokens: usage.promptTokenCount,
+          outputTokens: usage.candidatesTokenCount,
+          thoughtTokens: usage.thoughtsTokenCount,
+          totalTokens: usage.totalTokenCount,
+        },
+      });
+
       return {
         isTask: Boolean(parsed.isTask),
         taskTitle: parsed.taskTitle || trimmed,
@@ -295,18 +311,31 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
         rawText: text,
       };
     } catch (err: any) {
+      recordAiUsage(telemetry, {
+        operation: 'nlp_parse',
+        provider: 'gemini',
+        outcome: String(err?.message || '').includes('timeout') ? 'timeout' : 'failed',
+        durationMs: performance.now() - startedAt,
+      });
       console.warn(`[NLP] Gemini error (${err?.message || err}), mencoba opsi fallback...`);
     }
   }
 
   // 4. Tier 2: Try Antigravity CLI Host Bridge if configured
   if (config.antigravityBridgeUrl) {
+    const startedAt = performance.now();
     const bridgeText = await callAntigravityBridge(prompt);
     if (bridgeText) {
       try {
         const jsonMatch = bridgeText.match(/\{[\s\S]*\}/);
         const cleaned = jsonMatch ? jsonMatch[0] : bridgeText.replace(/```json/gi, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(cleaned);
+        recordAiUsage(telemetry, {
+          operation: 'nlp_parse',
+          provider: 'antigravity',
+          outcome: 'success',
+          durationMs: performance.now() - startedAt,
+        });
         console.log(`✨ [NLP] Berhasil diproses menggunakan Antigravity CLI Bridge!`);
         return {
           isTask: Boolean(parsed.isTask),
@@ -316,11 +345,18 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
           rawText: text,
         };
       } catch (parseErr: any) {
+        recordAiUsage(telemetry, {
+          operation: 'nlp_parse',
+          provider: 'antigravity',
+          outcome: 'failed',
+          durationMs: performance.now() - startedAt,
+        });
         console.warn(`[NLP] Gagal mem-parse JSON dari Antigravity Bridge:`, parseErr?.message || parseErr);
       }
     }
   }
 
   // 5. Tier 3: Local Offline Parser
+  telemetry.increment('ai_fallback_total', { operation: 'nlp_parse', provider: 'local', outcome: 'selected' });
   return parseLocalTask(text, now, options.timezone || config.defaultTimezone);
 }

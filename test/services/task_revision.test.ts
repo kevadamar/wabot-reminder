@@ -67,6 +67,31 @@ describe('Task Revision & Audit Log', () => {
     expect(rescheduleLog?.newValue).toBe(newDeadline.toISOString());
   });
 
+  it('should calculate a +30 minute extension from the same reply timestamp', async () => {
+    const replyTime = new Date('2026-09-28T03:17:00.000Z');
+    const task = await createTask(db, {
+      userJid: testUserJid,
+      task: 'Re-test build release',
+      deadline: new Date('2026-09-28T03:00:00.000Z'),
+      remindAt: new Date('2026-09-28T02:45:00.000Z'),
+      status: 'pending',
+    });
+    await db.update(tasks).set({ reminded: 2 });
+
+    const result = await rescheduleTask(db, {
+      taskId: task.id,
+      userJid: testUserJid,
+      newDeadline: new Date(replyTime.getTime() + 30 * 60 * 1000),
+      leadMinutes: 30,
+      now: replyTime,
+      rawInput: '1',
+    });
+
+    expect(result?.updatedTask.deadline?.toISOString()).toBe('2026-09-28T03:47:00.000Z');
+    expect(result?.updatedTask.remindAt?.toISOString()).toBe('2026-09-28T03:32:00.000Z');
+    expect(result?.updatedTask.reminded).toBe(0);
+  });
+
   it('should rename task title and log history', async () => {
     const task = await createTask(db, {
       userJid: testUserJid,

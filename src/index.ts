@@ -1,7 +1,10 @@
 import { client, db, initDb } from './db/index.js';
 import { userSettings } from './db/schema.js';
-import { startBot } from './bot/client.js';
+import { startBot, stopBot } from './bot/client.js';
 import { eq } from 'drizzle-orm';
+import { config } from './config/index.js';
+import { startDashboardServer } from './dashboard/server.js';
+import { flushTelemetry, telemetry } from './services/telemetry.js';
 
 async function bootstrap() {
   console.log('🚀 Memulai WhatsApp To-Do Reminder Bot...');
@@ -37,15 +40,44 @@ async function bootstrap() {
     }
   }
 
-  // 3. Start WhatsApp Bot
-  const { sock, reminderInterval } = await startBot();
+  // 3. Start optional read-only dashboard. Invalid credentials fail closed without stopping the bot.
+  let dashboard: ReturnType<typeof Bun.serve> | null = null;
+  try {
+    dashboard = startDashboardServer({
+      enabled: config.dashboardEnabled,
+      host: config.dashboardHost,
+      port: config.dashboardPort,
+      username: config.dashboardUsername,
+      password: config.dashboardPassword,
+      db,
+    });
+    if (dashboard) console.log(`📊 Dashboard monitoring aktif di ${dashboard.url}`);
+  } catch (err) {
+    console.error('⚠️ Dashboard dinonaktifkan karena konfigurasi tidak aman:', err);
+  }
 
+  // 4. Start WhatsApp Bot and lightweight telemetry flush loop.
+  await startBot();
+  const telemetryInterval = setInterval(() => {
+    flushTelemetry(db).catch((err) => {
+      console.error('⚠️ Gagal flush telemetry; data tetap berada di buffer:', err);
+    });
+  }, config.telemetryFlushIntervalMs);
+  telemetryInterval.unref?.();
+
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log('\n🛑 Menghentikan bot...');
-    clearInterval(reminderInterval);
+    clearInterval(telemetryInterval);
+    stopBot();
+    dashboard?.stop(true);
     try {
-      sock.end(undefined);
-    } catch {}
+      await flushTelemetry(db, telemetry);
+    } catch (err) {
+      console.error('⚠️ Telemetry terakhir gagal disimpan saat shutdown:', err);
+    }
     await client.end();
     console.log('👋 Bot berhasil dihentikan dengan aman.');
     process.exit(0);

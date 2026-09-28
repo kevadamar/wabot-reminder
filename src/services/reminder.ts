@@ -4,6 +4,7 @@ import { linkTaskMessage } from './task.js';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config/index.js';
 import { callAntigravityBridge } from './nlp.js';
+import { recordAiUsage, telemetry } from './telemetry.js';
 
 let defaultGeminiClient: any = null;
 function getGeminiClient() {
@@ -74,7 +75,17 @@ export async function checkAndDispatchReminders(
         await linkTaskMessage(db, task.id, messageId);
       }
       count++;
+      telemetry.increment('reminder_dispatch_total', { type: 'regular', outcome: 'success' });
     } catch {
+      telemetry.increment('reminder_dispatch_total', { type: 'regular', outcome: 'failed' });
+      telemetry.recordEvent({
+        component: 'scheduler',
+        operation: 'reminder_dispatch',
+        outcome: 'failed',
+        provider: null,
+        errorCode: 'REGULAR_DISPATCH_FAILED',
+        durationMs: null,
+      });
       // Continue next task on individual failure
     }
   }
@@ -103,7 +114,17 @@ export async function checkAndDispatchReminders(
         await linkTaskMessage(db, task.id, messageId);
       }
       count++;
+      telemetry.increment('reminder_dispatch_total', { type: 'overdue', outcome: 'success' });
     } catch {
+      telemetry.increment('reminder_dispatch_total', { type: 'overdue', outcome: 'failed' });
+      telemetry.recordEvent({
+        component: 'scheduler',
+        operation: 'reminder_dispatch',
+        outcome: 'failed',
+        provider: null,
+        errorCode: 'OVERDUE_DISPATCH_FAILED',
+        durationMs: null,
+      });
       // Continue next task
     }
   }
@@ -171,6 +192,7 @@ ${
 
   const gemini = customClient !== undefined ? customClient : getGeminiClient();
   if (gemini) {
+    const startedAt = performance.now();
     try {
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Gemini API timeout (3s)')), 3000)
@@ -191,9 +213,28 @@ ${
 
       const text = response.text?.trim();
       if (text) {
+        const usage = response.usageMetadata ?? {};
+        recordAiUsage(telemetry, {
+          operation: 'reminder_message',
+          provider: 'gemini',
+          outcome: 'success',
+          durationMs: performance.now() - startedAt,
+          usage: {
+            promptTokens: usage.promptTokenCount,
+            outputTokens: usage.candidatesTokenCount,
+            thoughtTokens: usage.thoughtsTokenCount,
+            totalTokens: usage.totalTokenCount,
+          },
+        });
         return text.replace(/^["']|["']$/g, '');
       }
     } catch (err: any) {
+      recordAiUsage(telemetry, {
+        operation: 'reminder_message',
+        provider: 'gemini',
+        outcome: String(err?.message || '').includes('timeout') ? 'timeout' : 'failed',
+        durationMs: performance.now() - startedAt,
+      });
       console.warn(`[ReminderMessage] Gemini error (${err?.message || err}), beralih ke fallback template...`);
     }
   }
@@ -209,6 +250,7 @@ ${
   }
 
   // Tier 3: Curated Warm Fallbacks
+  telemetry.increment('ai_fallback_total', { operation: 'reminder_message', provider: 'local', outcome: 'selected' });
   const pool = isOverdue ? OVERDUE_FALLBACKS : REGULAR_FALLBACKS;
   const picked = pool[Math.floor(Math.random() * pool.length)]!;
   const baseMsg = picked(task.task, deadlineStr);
@@ -218,4 +260,3 @@ ${
   }
   return baseMsg;
 }
-

@@ -15,5 +15,10 @@ export const config = {
   s3SecretKey: process.env.S3_SECRET_KEY || '',
   s3Region: process.env.S3_REGION || 'us-east-1',
   s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
+  dashboardEnabled: process.env.DASHBOARD_ENABLED === 'true',
+  dashboardHost: process.env.DASHBOARD_HOST || '127.0.0.1',
+  dashboardPort: parseInt(process.env.DASHBOARD_PORT || '3080', 10),
+  dashboardUsername: process.env.DASHBOARD_USERNAME || '',
+  dashboardPassword: process.env.DASHBOARD_PASSWORD || '',
+  telemetryFlushIntervalMs: Math.max(10_000, parseInt(process.env.TELEMETRY_FLUSH_INTERVAL_MS || '60000', 10)),
 };
-

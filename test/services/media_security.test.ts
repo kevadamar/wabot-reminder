@@ -10,6 +10,7 @@ import {
   getAttachmentBuffer,
   MAX_IMAGE_SIZE,
 } from '../../src/services/media.js';
+import { config } from '../../src/config/index.js';
 
 describe('Media Security Pipeline', () => {
   it('should validate valid JPEG image buffer via magic bytes', async () => {
@@ -91,6 +92,39 @@ describe('Media Security Pipeline', () => {
     expect(sanitized.buffer.length).toBeGreaterThan(0);
   });
 
+  it('should respect maxDimension options in sanitizeImageBuffer (4K default vs 2K compact)', async () => {
+    // Create an image larger than 2048px (e.g. 5000x2500)
+    const largeImage = await sharp({
+      create: { width: 5000, height: 2500, channels: 3, background: { r: 50, g: 100, b: 150 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    // Default (High / 4K): maxDimension is 4096
+    const highSanitized = await sanitizeImageBuffer(largeImage);
+    const highMeta = await sharp(highSanitized.buffer).metadata();
+    expect(highMeta.width).toBe(4096);
+    expect(highMeta.height).toBe(2048); // 5000:2500 (2:1) scaled to 4096:2048
+
+    // Compact mode (2K): maxDimension is 2048
+    const compactSanitized = await sanitizeImageBuffer(largeImage, { maxDimension: 2048 });
+    const compactMeta = await sharp(compactSanitized.buffer).metadata();
+    expect(compactMeta.width).toBe(2048);
+    expect(compactMeta.height).toBe(1024); // 5000:2500 (2:1) scaled to 2048:1024
+
+    // Small image (< 2048px): should NOT be enlarged
+    const smallImage = await sharp({
+      create: { width: 640, height: 480, channels: 3, background: { r: 20, g: 40, b: 60 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    const smallSanitized = await sanitizeImageBuffer(smallImage);
+    const smallMeta = await sharp(smallSanitized.buffer).metadata();
+    expect(smallMeta.width).toBe(640);
+    expect(smallMeta.height).toBe(480);
+  });
+
   it('should sanitize document buffer and generate SHA-256 hash', () => {
     const docBuffer = Buffer.from('test document content');
     const sanitized = sanitizeDocumentBuffer(docBuffer, 'application/pdf', 'pdf');
@@ -122,26 +156,32 @@ describe('Media Security Pipeline', () => {
   });
 
   it('should save media attachment to sandboxed storage with 0o600 permissions', async () => {
-    const dummyBuffer = Buffer.from('sandboxed media data test');
-    const testDir = './storage/test_attachments';
+    const prevDriver = config.storageDriver;
+    config.storageDriver = 'local';
+    try {
+      const dummyBuffer = Buffer.from('sandboxed media data test');
+      const testDir = './storage/test_attachments';
 
-    const savedPath = await saveAttachmentToStorage(dummyBuffer, 'jpg', 'image/jpeg', testDir);
-    expect(savedPath).toBeDefined();
-    expect(savedPath.endsWith('.jpg')).toBe(true);
+      const savedPath = await saveAttachmentToStorage(dummyBuffer, 'jpg', 'image/jpeg', testDir);
+      expect(savedPath).toBeDefined();
+      expect(savedPath.endsWith('.jpg')).toBe(true);
 
-    const exists = await fs
-      .stat(savedPath)
-      .then(() => true)
-      .catch(() => false);
-    expect(exists).toBe(true);
+      const exists = await fs
+        .stat(savedPath)
+        .then(() => true)
+        .catch(() => false);
+      expect(exists).toBe(true);
 
-    // Verify reading buffer locally
-    const readBuffer = await getAttachmentBuffer(savedPath);
-    expect(readBuffer).not.toBeNull();
-    expect(readBuffer?.toString()).toBe('sandboxed media data test');
+      // Verify reading buffer locally
+      const readBuffer = await getAttachmentBuffer(savedPath);
+      expect(readBuffer).not.toBeNull();
+      expect(readBuffer?.toString()).toBe('sandboxed media data test');
 
-    // Cleanup test file
-    await fs.rm(testDir, { recursive: true, force: true });
+      // Cleanup test file
+      await fs.rm(testDir, { recursive: true, force: true });
+    } finally {
+      config.storageDriver = prevDriver;
+    }
   });
 
   it('should upload attachment to S3 and retrieve buffer using mock S3Client', async () => {

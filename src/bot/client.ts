@@ -16,8 +16,31 @@ import { eq } from 'drizzle-orm';
 import { ensureUserSettings, getTaskAttachments } from '../services/task.js';
 import { getAttachmentBuffer } from '../services/media.js';
 import { ensureAuthDirectory, saveCredentialsSafely } from './auth.js';
+import { dispatchMorningDigests } from '../services/morning-digest.js';
+import { runtimeHealth, telemetry } from '../services/telemetry.js';
 
 const logger = pino({ level: config.logLevel });
+let activeSchedulerInterval: ReturnType<typeof setInterval> | null = null;
+let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+let currentSocket: any = null;
+let schedulerRunning = false;
+let stopping = false;
+
+function stopScheduler(): void {
+  if (activeSchedulerInterval) clearInterval(activeSchedulerInterval);
+  activeSchedulerInterval = null;
+}
+
+export function stopBot(): void {
+  stopping = true;
+  stopScheduler();
+  if (reconnectTimeout) clearTimeout(reconnectTimeout);
+  reconnectTimeout = null;
+  try {
+    currentSocket?.end(undefined);
+  } catch {}
+  currentSocket = null;
+}
 
 export async function startBot() {
   await ensureAuthDirectory(config.authDir);
@@ -36,6 +59,7 @@ export async function startBot() {
     printQRInTerminal: false,
     generateHighQualityLinkPreview: false,
   });
+  currentSocket = sock;
 
   // Save updated credentials
   sock.ev.on('creds.update', async () => {
@@ -58,14 +82,26 @@ export async function startBot() {
     if (connection === 'close') {
       const shouldReconnect =
         (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-      logger.warn(
-        `Koneksi terputus karena: ${lastDisconnect?.error}, mencoba menyambung ulang: ${shouldReconnect}`
-      );
-      if (shouldReconnect) {
-        setTimeout(startBot, 3000);
+      stopScheduler();
+      runtimeHealth.whatsappStatus = shouldReconnect ? 'reconnecting' : 'logged_out';
+      runtimeHealth.whatsappChangedAt = new Date();
+      telemetry.increment('whatsapp_connection_total', {
+        outcome: shouldReconnect ? 'reconnecting' : 'logged_out',
+      });
+      logger.warn({ event: 'whatsapp_connection_closed', shouldReconnect }, 'WhatsApp connection closed');
+      if (shouldReconnect && !stopping && !reconnectTimeout) {
+        reconnectTimeout = setTimeout(() => {
+          reconnectTimeout = null;
+          startBot().catch((err) => {
+            logger.error({ event: 'whatsapp_reconnect_failed', err }, 'WhatsApp reconnect failed');
+          });
+        }, 3000);
       }
     } else if (connection === 'open') {
       const botNumber = sock.user?.id ? sock.user.id.split(':')[0] : 'Unknown';
+      runtimeHealth.whatsappStatus = 'connected';
+      runtimeHealth.whatsappChangedAt = new Date();
+      telemetry.increment('whatsapp_connection_total', { outcome: 'connected' });
       console.log(`\n✅ WhatsApp Bot berhasil terhubung! Nomor: ${botNumber}`);
     }
   });
@@ -104,9 +140,24 @@ export async function startBot() {
       if (msg.key.fromMe && !isSelfChat) continue;
 
       try {
+        const startedAt = performance.now();
+        telemetry.increment('message_received_total', { type: 'message', outcome: 'accepted' });
         await handleIncomingMessage(sock, msg);
+        telemetry.observe('message_handler_duration_ms', Math.round(performance.now() - startedAt), {
+          operation: 'message',
+          outcome: 'success',
+        });
       } catch (err) {
-        logger.error({ err, msgId: msg.key?.id }, 'Error processing incoming message');
+        telemetry.increment('message_handler_total', { operation: 'message', outcome: 'failed' });
+        telemetry.recordEvent({
+          component: 'router',
+          operation: 'message',
+          outcome: 'failed',
+          provider: null,
+          errorCode: 'HANDLER_ERROR',
+          durationMs: null,
+        });
+        logger.error({ event: 'message_handler_failed', err }, 'Error processing incoming message');
       }
     }
   });
@@ -124,17 +175,42 @@ export async function startBot() {
       if (r.reaction?.key?.fromMe && !isSelfChat) continue;
 
       try {
+        const startedAt = performance.now();
         await handleIncomingReaction(sock, r);
+        telemetry.observe('message_handler_duration_ms', Math.round(performance.now() - startedAt), {
+          operation: 'reaction',
+          outcome: 'success',
+        });
       } catch (err) {
-        logger.error({ err, msgId: r.key?.id }, 'Error processing message reaction');
+        telemetry.increment('message_handler_total', { operation: 'reaction', outcome: 'failed' });
+        telemetry.recordEvent({
+          component: 'router',
+          operation: 'reaction',
+          outcome: 'failed',
+          provider: null,
+          errorCode: 'HANDLER_ERROR',
+          durationMs: null,
+        });
+        logger.error({ event: 'reaction_handler_failed', err }, 'Error processing message reaction');
       }
     }
   });
 
-  // Background reminder cron (runs every 60 seconds)
-  const reminderInterval = setInterval(async () => {
+  // Background scheduler (runs every 60 seconds, one cycle at a time)
+  stopScheduler();
+  const runSchedulerCycle = async () => {
+    if (schedulerRunning || stopping) {
+      telemetry.increment('scheduler_cycle_total', { operation: 'combined', outcome: 'skipped' });
+      return;
+    }
+    if (runtimeHealth.whatsappStatus !== 'connected') {
+      telemetry.increment('scheduler_cycle_total', { operation: 'combined', outcome: 'disconnected' });
+      return;
+    }
+    schedulerRunning = true;
+    const cycleStartedAt = performance.now();
     try {
-      await checkAndDispatchReminders(db, async (task, isOverdue) => {
+      const reminderCount = await checkAndDispatchReminders(db, async (task, isOverdue) => {
         const user = await ensureUserSettings(db, task.userJid);
         const deadlineStr = task.deadline
           ? formatDateTime(new Date(task.deadline), user.timezone)
@@ -183,10 +259,44 @@ export async function startBot() {
 
         return sent?.key?.id ?? null;
       });
-    } catch (err) {
-      logger.error({ err }, 'Error in reminder scheduler cycle');
-    }
-  }, 60 * 1000);
+      runtimeHealth.lastReminderCycleAt = new Date();
+      telemetry.observe('reminder_dispatch_count', reminderCount, { outcome: 'success' });
 
-  return { sock, reminderInterval };
+      const digestResult = await dispatchMorningDigests(db, {
+        sendMessage: async (userJid, text) => {
+          const sent = await sock.sendMessage(userJid, { text });
+          return sent?.key?.id ?? null;
+        },
+      });
+      runtimeHealth.lastMorningDigestCycleAt = new Date();
+      telemetry.observe('morning_digest_due_count', digestResult.due, { outcome: 'success' });
+      if (digestResult.sent > 0) {
+        telemetry.observe('morning_digest_sent_count', digestResult.sent, { outcome: 'success' });
+      }
+      if (digestResult.failed > 0) {
+        telemetry.observe('morning_digest_failed_count', digestResult.failed, { outcome: 'failed' });
+      }
+      telemetry.increment('scheduler_cycle_total', { operation: 'combined', outcome: 'success' });
+    } catch (err) {
+      telemetry.increment('scheduler_cycle_total', { operation: 'combined', outcome: 'failed' });
+      telemetry.recordEvent({
+        component: 'scheduler',
+        operation: 'combined_cycle',
+        outcome: 'failed',
+        provider: null,
+        errorCode: 'SCHEDULER_ERROR',
+        durationMs: Math.round(performance.now() - cycleStartedAt),
+      });
+      logger.error({ event: 'scheduler_cycle_failed', err }, 'Error in scheduler cycle');
+    } finally {
+      telemetry.observe('scheduler_cycle_duration_ms', Math.round(performance.now() - cycleStartedAt), {
+        operation: 'combined',
+      });
+      schedulerRunning = false;
+    }
+  };
+
+  activeSchedulerInterval = setInterval(runSchedulerCycle, 60 * 1000);
+
+  return { sock, reminderInterval: activeSchedulerInterval };
 }

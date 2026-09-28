@@ -17,10 +17,15 @@ import {
   getTaskHistory,
   addAttachmentToTask,
   getTaskAttachments,
+  updateImageQualityMode,
 } from '../../services/task.js';
 import { parseTaskMessage, parseLocalTask } from '../../services/nlp.js';
 import { calculateRemindAt } from '../../services/reminder.js';
 import { generateAffirmation } from '../../services/affirmation.js';
+import {
+  parseMorningDigestCommand,
+  updateMorningDigestSettings,
+} from '../../services/morning-digest.js';
 import {
   validateMediaBuffer,
   sanitizeImageBuffer,
@@ -69,6 +74,17 @@ Balas langsung ke pesan tugas yang ingin diubah:
 • *daftar* atau */list* : Melihat semua tugas aktif & sub-tugas
 • *tree <ID>* atau *detail <ID>* : Melihat struktur pohon tugas & lampiran
 • *riwayat <ID>* : Melihat riwayat perubahan/audit tugas
+
+🌤️ *Ringkasan Pagi (Opt-in):*
+• */pagi aktif* : Aktifkan ringkasan task harian
+• */pagi nonaktif* : Nonaktifkan ringkasan pagi
+• */pagi waktu 06:30* : Atur waktu lokal pengiriman
+• */pagi status* : Lihat pengaturan saat ini
+
+🖼️ *Kualitas Gambar Lampiran:*
+• */setting media tinggi* : Simpan hingga 4K (4096px, default)
+• */setting media hemat* : Simpan resolusi hemat (2048px)
+• */setting media* : Cek status pengaturan saat ini
 
 ✅ *Menyelesaikan Tugas:*
 • Beri reaksi emoji ✅ pada pesan pengingat, ATAU
@@ -204,7 +220,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   // If there's neither text nor media, ignore
   if (!trimmedText && !isImage && !isDocument) return;
 
-  console.log(`📩 [Pesan Masuk] Dari: ${remoteJid} (Raw: ${rawJid}) | Teks: "${trimmedText}" | Media: ${isImage ? 'image' : isDocument ? 'doc' : 'none'}`);
+  console.log(`📩 [Pesan Masuk] Jenis: ${isImage ? 'image' : isDocument ? 'document' : 'text'}`);
 
   const contextInfo = msg.message.extendedTextMessage?.contextInfo ||
     msg.message.imageMessage?.contextInfo ||
@@ -215,7 +231,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   // 1. Check user permission
   const user = await ensureUserSettings(db, remoteJid, msg.pushName || null, false);
   if (!user.isAllowed) {
-    console.warn(`⛔ [Akses Ditolak] Nomor ${remoteJid} belum diizinkan (is_allowed = false).`);
+    console.warn('⛔ [Akses Ditolak] Pesan dari user yang belum diizinkan diabaikan.');
     await sock.sendMessage(remoteJid, {
       text: `⚠️ *Akses Dibatasi*\n\nNomor Anda (${remoteJid.replace('@s.whatsapp.net', '')}) belum terdaftar dalam whitelist bot to-do ini. Silakan hubungi pemilik bot atau periksa tabel database.`,
     });
@@ -249,7 +265,8 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
     if (validation.fileType === 'image') {
       try {
-        sanitized = await sanitizeImageBuffer(buffer);
+        const maxDimension = user.imageQualityMode === 'compact' ? 2048 : 4096;
+        sanitized = await sanitizeImageBuffer(buffer, { maxDimension, quality: 85 });
       } catch (err: any) {
         await sock.sendMessage(remoteJid, {
           text: '⚠️ File gambar korup atau gagal diproses oleh sistem sanitasi.',
@@ -260,7 +277,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       // Layer 4: Multimodal AI screening (scam/phishing & OCR)
       aiResult = await screenAndExtractImageWithAI(sanitized.buffer, sanitized.mimeType);
       if (aiResult.isSuspicious) {
-        console.warn(`🚨 [Keamanan] Gambar mencurigakan dari ${remoteJid}: ${aiResult.safetyReason}`);
+        console.warn('🚨 [Keamanan] Gambar mencurigakan ditolak oleh media screening.');
         await sock.sendMessage(remoteJid, {
           text: `🚨 *Peringatan Keamanan!*\nGambar terdeteksi mencurigakan atau berpotensi bahaya/penipuan: _${aiResult.safetyReason || 'Indikasi phishing/scam'}_.\n\nFile ditolak dan tidak disimpan demi keamananmu.`,
         });
@@ -402,8 +419,88 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
   // 3. Help command
   if (/^(\/help|help|halp|bantuan|menu)$/i.test(trimmedText)) {
-    console.log(`ℹ️ [Command] Menampilkan panduan bantuan untuk ${remoteJid}`);
+    console.log('ℹ️ [Command] Menampilkan panduan bantuan.');
     await sock.sendMessage(remoteJid, { text: HELP_MESSAGE });
+    return;
+  }
+
+  // 3.5. Opt-in morning digest settings
+  const morningCommand = parseMorningDigestCommand(trimmedText);
+  if (morningCommand) {
+    if (morningCommand.action === 'invalid_time') {
+      await sock.sendMessage(remoteJid, {
+        text: '⚠️ Format waktu belum valid. Gunakan format 24 jam, misalnya */pagi waktu 06:30*.',
+      });
+      return;
+    }
+
+    if (morningCommand.action === 'status') {
+      const status = user.morningDigestEnabled ? 'aktif' : 'nonaktif';
+      await sock.sendMessage(remoteJid, {
+        text: `🌤️ *Ringkasan Pagi*\nStatus: *${status}*\nWaktu: *${user.morningDigestTime}* (${user.timezone})\n\nGunakan */pagi aktif*, */pagi nonaktif*, atau */pagi waktu HH:mm* untuk mengubahnya.`,
+      });
+      return;
+    }
+
+    if (morningCommand.action === 'enable') {
+      const updated = await updateMorningDigestSettings(db, remoteJid, { enabled: true });
+      await sock.sendMessage(remoteJid, {
+        text: `✅ Ringkasan pagi diaktifkan pada *${updated?.morningDigestTime || '06:00'}* (${user.timezone}). Kamu bisa mengubahnya dengan */pagi waktu HH:mm*.`,
+      });
+      return;
+    }
+
+    if (morningCommand.action === 'disable') {
+      await updateMorningDigestSettings(db, remoteJid, { enabled: false });
+      await sock.sendMessage(remoteJid, {
+        text: '🌙 Ringkasan pagi sudah dinonaktifkan. Waktu pilihanmu tetap tersimpan dan bisa diaktifkan kembali kapan saja.',
+      });
+      return;
+    }
+
+    const updated = await updateMorningDigestSettings(db, remoteJid, { time: morningCommand.time });
+    await sock.sendMessage(remoteJid, {
+      text: `⏰ Waktu ringkasan pagi diatur ke *${updated?.morningDigestTime || morningCommand.time}* (${user.timezone}). Status tetap *${updated?.morningDigestEnabled ? 'aktif' : 'nonaktif'}*.`,
+    });
+    return;
+  }
+
+  // 3.6. Image Quality Mode settings
+  const mediaSettingMatch = trimmedText.match(
+    /^(?:\/setting\s+|setting\s+)?(?:media|kualitas_gambar|kualitas\s*gambar)(?:\s+(.+))?$/i
+  );
+  if (mediaSettingMatch) {
+    const action = mediaSettingMatch[1]?.trim().toLowerCase();
+    if (!action || action === 'status' || action === 'info' || action === 'cek') {
+      const currentLabel =
+        user.imageQualityMode === 'compact'
+          ? 'Hemat / Compact (Maksimal 2048px / 2K)'
+          : 'Kualitas Tinggi / High (Maksimal 4096px / 4K - Default)';
+      await sock.sendMessage(remoteJid, {
+        text: `🖼️ *Pengaturan Kualitas Gambar Lampiran*\n\nStatus saat ini: *${currentLabel}*\nKompresi: *Quality 85* (Bebas metadata EXIF demi privasi & keamanan)\n\nPilihan perintah:\n• */setting media tinggi* : Kualitas tinggi (Maksimal 4K / 4096px)\n• */setting media hemat* : Kualitas hemat (Maksimal 2K / 2048px)`,
+      });
+      return;
+    }
+
+    if (/^(tinggi|hd|high|4k|maksimal)$/i.test(action)) {
+      await updateImageQualityMode(db, remoteJid, 'high');
+      await sock.sendMessage(remoteJid, {
+        text: `🖼️ *Kualitas Gambar Diatur: Tinggi (High / 4K)*\n\nResolusi gambar lampiran disimpan tajam hingga maksimal 4096px dengan quality 85. Metadata EXIF tetap dibersihkan demi privasi & keamanan. ✨`,
+      });
+      return;
+    }
+
+    if (/^(hemat|compact|kompres|rendah|2k)$/i.test(action)) {
+      await updateImageQualityMode(db, remoteJid, 'compact');
+      await sock.sendMessage(remoteJid, {
+        text: `🖼️ *Kualitas Gambar Diatur: Hemat (Compact / 2K)*\n\nResolusi gambar lampiran disimpan hingga maksimal 2048px dengan quality 85 untuk menghemat kuota dan penyimpanan. ✨`,
+      });
+      return;
+    }
+
+    await sock.sendMessage(remoteJid, {
+      text: `⚠️ Pilihan kualitas gambar tidak dikenali. Gunakan:\n• */setting media tinggi* (Maks 4K)\n• */setting media hemat* (Maks 2K)`,
+    });
     return;
   }
 
@@ -878,6 +975,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
           userJid: remoteJid,
           newDeadline,
           leadMinutes: user.leadReminderMinutes,
+          now,
           rawInput: trimmedText,
         });
 
@@ -952,7 +1050,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
   if (!nlpResult.isTask) {
     if (/^(halo|hai|hey|p|ping|assalamualaikum|pagi|siang|sore|malam|tes|test)\b/i.test(trimmedText)) {
-      console.log(`👋 [Sapaan] Membalas salam ramah ke ${remoteJid}`);
+      console.log('👋 [Sapaan] Membalas salam ramah.');
       await sock.sendMessage(remoteJid, {
         text: `Halo! 👋 Aku asisten pengingat tugasmu.\n\nAda tugas yang ingin dicatat hari ini? Kamu bisa ketik langsung (contoh: _"Besok jam 2 siang rapat tim"_), atau ketik *help* untuk melihat panduan ya! ✨`,
       });

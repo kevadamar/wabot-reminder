@@ -11,6 +11,7 @@ import {
   listActiveTasks,
   updateTaskDeadline,
   getLatestPendingDeadlineTask,
+  updateImageQualityMode,
 } from '../../src/services/task.js';
 
 describe('Seam 3: Task Management & State Operations', () => {
@@ -164,5 +165,16 @@ describe('Seam 3: Task Management & State Operations', () => {
 
     expect(updated?.status).toBe('pending');
     expect(updated?.deadline?.toISOString()).toBe(newDeadline.toISOString());
+  });
+
+  it('should update image quality mode in user settings', async () => {
+    const user = await ensureUserSettings(db, testUserJid, 'Budi Test', true);
+    expect(user.imageQualityMode).toBe('high'); // Default is high
+
+    const updatedCompact = await updateImageQualityMode(db, testUserJid, 'compact');
+    expect(updatedCompact?.imageQualityMode).toBe('compact');
+
+    const updatedHigh = await updateImageQualityMode(db, testUserJid, 'high');
+    expect(updatedHigh?.imageQualityMode).toBe('high');
   });
 });

@@ -57,6 +57,33 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(sentMessages[0]).toContain('Mengecek');
   });
 
+  it('should let an allowed user configure the opt-in morning digest', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: `MSG_${sentMessages.length}` } };
+      },
+    };
+
+    for (const text of ['/pagi status', '/pagi aktif', '/pagi waktu 06:30', '/pagi nonaktif']) {
+      await handleIncomingMessage(mockSock as any, {
+        key: { remoteJid: allowedUserJid, id: `IN_${text}` },
+        message: { conversation: text },
+      });
+    }
+
+    expect(sentMessages[0]).toContain('nonaktif');
+    expect(sentMessages[1]).toContain('diaktifkan');
+    expect(sentMessages[2]).toContain('06:30');
+    expect(sentMessages[3]).toContain('dinonaktifkan');
+
+    const saved = await db.select().from(userSettings);
+    expect(saved[0]?.morningDigestEnabled).toBe(false);
+    expect(saved[0]?.morningDigestTime).toBe('06:30');
+  });
+
   it('should create task when allowed user sends a task', async () => {
     await ensureUserSettings(db, allowedUserJid, 'Owner', true);
 
@@ -482,5 +509,61 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(sentMessages[0]).toContain('+30 menit');
     expect(sentMessages[0]).toContain('besok jam 09:00');
   });
-});
 
+  it('should display image quality setting status with "/setting media"', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_SETTING_MEDIA' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_SETTING_MEDIA' },
+      message: { conversation: '/setting media' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Pengaturan Kualitas Gambar');
+    expect(sentMessages[0]).toContain('Kualitas Tinggi / High (Maksimal 4096px / 4K - Default)');
+  });
+
+  it('should change image quality to compact and high via command', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_CHANGE_QUALITY' } };
+      },
+    };
+
+    // 1. Change to compact
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_MEDIA_COMPACT' },
+      message: { conversation: '/setting media hemat' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Hemat (Compact / 2K)');
+
+    const userSettingsCheck1 = await db.select().from(userSettings);
+    expect(userSettingsCheck1[0]?.imageQualityMode).toBe('compact');
+
+    // 2. Change back to high
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_MEDIA_HIGH' },
+      message: { conversation: '/setting media tinggi' },
+    });
+
+    expect(sentMessages.length).toBe(2);
+    expect(sentMessages[1]).toContain('Tinggi (High / 4K)');
+
+    const userSettingsCheck2 = await db.select().from(userSettings);
+    expect(userSettingsCheck2[0]?.imageQualityMode).toBe('high');
+  });
+});
