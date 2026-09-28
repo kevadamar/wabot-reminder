@@ -29,7 +29,11 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
   1. **Tier 1 (Cloud)**: Google Gemini Flash dengan kesadaran konteks waktu dinamis.
   2. **Tier 2 (Host CLI Fallback)**: **Antigravity CLI** (`agy`) bridge port 7860 jika API Gemini limit atau bermasalah.
   3. **Tier 3 (Local Offline Fallback)**: Mesin regex komprehensif Bahasa Indonesia + `chrono-node` dengan kesadaran timezone (WIB/WITA/WIT). Bot **tidak pernah drop pesan atau crash** meski tanpa internet ke Google AI!
-- ⏰ **Pengingat Ramah & Adaptif**: Otomatis mengirimkan pengingat 30 menit atau 15 menit sebelum deadline dengan nada bersahabat (bukan gaya penagih hutang).
+- ⏰ **Pengingat Ramah, Adaptif & Fleksibel**:
+  - Secara default mengingatkan sesuai konfigurasi pengguna (default 10–30 menit sebelum deadline).
+  - Mendukung penentuan waktu pengingat khusus per tugas langsung dari bahasa alami (contoh: *"ingatkan 30 menit sebelumnya"*, *"ingatkan 1 jam sebelum"*, *"ingatkan H-1"*).
+  - Pengingat darurat otomatis (*overdue alert*) jika tugas melewati deadline tanpa diselesaikan.
+  - Nada pengingat bersahabat dan memotivasi (bukan gaya penagih hutang).
 - ✅ **Penyelesaian Fleksibel**: Cukup beri reaksi emoji **✅** di balon pesan bot WhatsApp, balas pesan dengan emoji ✅, atau ketik `selesai <ID>`.
 - 🎉 **Afirmasi Positif Dinamis**: Merayakan setiap tugas yang selesai dengan pujian gaul dan memotivasi dari AI.
 - 🐘 **PostgreSQL & Drizzle ORM**: Skema database yang scalable, terstruktur, dan mudah dikelola melalui pgAdmin atau TablePlus.
@@ -119,7 +123,7 @@ Saat pertama kali dijalankan, **QR Code** akan muncul di terminal. Pindai (scan)
 ### 📌 1. Format Perintah Langsung
 | Perintah | Deskripsi | Contoh |
 | :--- | :--- | :--- |
-| `<Pesan Tugas>` | Mencatat tugas baru otomatis | *"Besok jam 2 siang meeting dengan vendor"* |
+| `<Pesan Tugas>` | Mencatat tugas baru otomatis (mendukung lead time pengingat kustom) | *"Besok jam 2 siang meeting dengan vendor, ingatkan 30 menit sebelumnya"* atau *"Lusa jam 10 pagi kirim berkas, ingatkan H-1"* |
 | `<Kirim Foto / PDF>` | Lampirkan file (disaring & di-OCR aman) | Kirim dokumen proposal + caption *"Review proposal lusa jam 10"* |
 | `/list` atau `daftar` | Menampilkan seluruh tugas aktif & pohon sub-tugas | `daftar` |
 | `detail <ID>` / `tree <ID>` | Melihat detail tugas, lampiran, dan daftar sub-tugas | `detail 5` |
@@ -133,7 +137,7 @@ Saat pertama kali dijalankan, **QR Code** akan muncul di terminal. Pindai (scan)
 | `/pagi status` | Melihat status, waktu, dan timezone ringkasan pagi | `/pagi status` |
 | `/username <Nama>` | Mengatur nama panggilan agar sistem mengenali pengguna | `/username Keva` |
 | `/username` | Mengecek nama panggilan yang tersimpan saat ini | `/username` |
-| `/setting reminder <menit>` | Mengatur lead time pengingat awal sebelum deadline (1–1440 m) | `/setting reminder 10` |
+| `/setting reminder <menit>` | Mengatur lead time pengingat awal default sebelum deadline (1–1440 m) | `/setting reminder 10` |
 | `/setting reminder` | Mengecek lead time pengingat yang aktif saat ini | `/setting reminder` |
 | `/setting media` | Mengecek status kualitas gambar lampiran saat ini | `/setting media` |
 | `/setting media tinggi` | Kualitas tinggi (Maks 4K / 4096px, default, quality 85) | `/setting media tinggi` |
@@ -142,7 +146,12 @@ Saat pertama kali dijalankan, **QR Code** akan muncul di terminal. Pindai (scan)
 
 Ringkasan pagi bersifat **opt-in** (default-nya nonaktif). Saat aktif, bot mengirimkan sapaan personal sesuai nama pengguna (`/username`), rekap tugas selesai kemarin (`📊 Kemarin: X tugas selesai 🎉`), pengingat ramah untuk tugas terlewat/overdue (maksimal 3 tugas teratas dengan saran aksi cepat dan ajakan cek `list`), serta agenda tugas hari ini lengkap dengan ID tugas. Bot hanya memanggil AI ketika minimal satu user aktif benar-benar due. Satu pantun pendek di-cache per tanggal dan dipakai ulang; jika AI timeout atau gagal, bot langsung memakai pantun lokal.
 
-Lead time pengingat awal default-nya adalah **10 menit** sebelum deadline (dapat disesuaikan secara dinamis via `/setting reminder <menit>` atau melalui `DEFAULT_REMINDER_LEAD_MINUTES` di environment). Jika sisa waktu ke deadline kurang dari atau sama dengan lead time pengingat, pengingat akan dikirim tepat pada waktu deadline. Jika lead time diatur ke 30 menit atau lebih dan jarak tugas 30–120 menit, bot adaptif mengirimkan pengingat 15 menit sebelum deadline.
+Lead time pengingat awal default-nya adalah **10 menit** sebelum deadline (dapat disesuaikan secara dinamis via `/setting reminder <menit>` atau melalui `DEFAULT_REMINDER_LEAD_MINUTES` di environment). Selain itu, pengguna dapat menentukan waktu pengingat **khusus per tugas** langsung dalam bahasa alami, misalnya:
+- *"ingatkan 15 menit sebelumnya"* / *"ingatkan 45 menit sebelum"* (satuan menit)
+- *"ingatkan 1 jam sebelumnya"* / *"ingatkan 2 jam sebelum"* (satuan jam)
+- *"ingatkan H-1"* / *"ingatkan 1 hari sebelumnya"* (satuan hari)
+
+Jika sisa waktu ke deadline kurang dari atau sama dengan lead time pengingat, pengingat akan dikirim tepat pada waktu deadline. Jika lead time diatur ke 30 menit atau lebih dan jarak tugas 30–120 menit tanpa spesifikasi eksplisit, bot adaptif mengirimkan pengingat 15 menit sebelum deadline.
 
 Kualitas gambar lampiran default-nya adalah **tinggi (high / 4K max)** dengan sanitasi CDR (menghapus GPS/EXIF dan proteksi pixel flood). Pengguna dapat mengubahnya menjadi hemat (2K max) kapan saja via `/setting media hemat`.
 
@@ -260,9 +269,11 @@ Bot dilengkapi dengan web dashboard internal (`src/dashboard/`) yang aman, ringa
      * Menambahkan nomor WhatsApp baru ke whitelist secara manual.
      * Menghapus kontak dan seluruh data terkait dari sistem.
    * **07 Task Explorer & Interactive Detail View**:
-     * Eksplorasi seluruh daftar tugas bot dengan filter status (*Semua*, *Aktif*, *Pending*, *No Deadline*, *Selesai*, *Batal*) dan pencarian teks *real-time*.
-     * Indikator jumlah sub-tugas (`☑`) dan berkas lampiran (`📎`).
-     * **Modal Detail Tugas**: Pop-up interaktif menampilkan rincian tugas induk, daftar sub-tugas, berkas gambar/PDF, preview teks hasil OCR AI, dan jejak audit perubahan (*audit trail*).
+     * Eksplorasi seluruh daftar tugas bot dengan filter status (*Aktif*, *Semua*, *Pending*, *No Deadline*, *Selesai*, *Batal*) dan pencarian teks *real-time*.
+     * **Default Filter "Aktif" & Paginasi Cepat**: Default menampilkan tugas aktif untuk efisiensi beban render dan query database, dilengkapi kontrol paginasi (20 item per halaman, tombol *Sebelumnya* / *Berikutnya*, indikator halaman dan total data).
+     * Indikator visual jumlah sub-tugas (`☑`) dan berkas lampiran (`📎`).
+     * **Modal Detail Tugas**: Pop-up interaktif menampilkan rincian tugas induk, daftar sub-tugas, berkas gambar/PDF, preview teks hasil OCR AI, dan jejak audit perubahan lengkap (*audit trail* dengan rincian trigger `raw_input`).
+     * **Panel Atur Ulang Jadwal & Pengingat (Admin Reschedule)**: Admin dapat mengubah deadline dan lead time pengingat (menit) secara langsung dari dashboard, lengkap dengan preview tanggal/jam baru serta dialog konfirmasi sadar-admin. Jadwal `remind_at` dikalkulasikan ulang otomatis dan status pengingat direset ke belum terkirim.
    * **08 Cron & Automation Monitoring**:
      * **Background Cron Dispatchers**: Memantau status engine scheduler (*Task Reminder Dispatcher* dan *Morning Digest Dispatcher*) dengan tombol jeda/aktifkan untuk mencegah lonjakan beban atau spam.
      * **Antrean Pengingat yang Belum Berjalan**: Melihat daftar reminder tugas yang akan dieksekusi di masa depan, dilengkapi tombol matikan pengingat sebelum dikirim ke WhatsApp.

@@ -88,21 +88,21 @@ sequenceDiagram
     participant Gemini as Gemini AI
     participant DB as PostgreSQL
     
-    User->>Router: "Besok jam 2 siang meeting sama klien"
+    User->>Router: "Besok jam 2 siang meeting sama klien, ingatkan 30 menit sebelumnya"
     Router->>NLP: parseTaskMessage(text)
     
     alt Gemini Available
-        NLP->>Gemini: Prompt structured task JSON
-        Gemini-->>NLP: { isTask: true, taskTitle: "meeting sama klien", deadline: ISO }
+        NLP->>Gemini: Prompt structured task JSON (with reminderLeadMinutes)
+        Gemini-->>NLP: { isTask: true, taskTitle: "meeting sama klien", deadline: ISO, reminderLeadMinutes: 30 }
     else Gemini Offline / Limit
-        NLP->>NLP: Local dictionary + chrono.en parse
+        NLP->>NLP: Local dictionary + chrono.en parse + extractExplicitReminderLead()
     end
     
-    NLP-->>Router: ParseResult (isTask: true, deadline: Date)
-    Router->>Router: calculateRemindAt(deadline) -> T - 30 minutes
+    NLP-->>Router: ParseResult (isTask: true, deadline: Date, reminderLeadMinutes: 30)
+    Router->>Router: calculateRemindAt(deadline, { userSettingLead, overrideLead: 30 }) -> T - 30 minutes
     Router->>DB: createTask({ task, deadline, remindAt, status: 'pending' })
     DB-->>Router: Task Record (ID: 15)
-    Router->>User: "✅ Tugas Dicatat! 📝: meeting sama klien ⏰ Deadline: Besok, 14:00"
+    Router->>User: "✅ Tugas Dicatat! 📝: meeting sama klien ⏰ Deadline: Besok, 14:00 (Pengingat: 30 menit sebelum)"
     Router->>DB: linkTaskMessage(15, botReplyMessageId)
 ```
 
@@ -300,8 +300,8 @@ erDiagram
    - **Internal Monitoring Dashboard & Control Room (`src/dashboard/`)**: Dashboard pemantauan dan administrasi operasional bot pada port 3080 (`DASHBOARD_PORT`). Bersifat opsional (`DASHBOARD_ENABLED=false` secara default), diproteksi penuh oleh HTTP Basic Authentication (`DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD` minimal 16 karakter), header keamanan ketat (CSP, nosniff, frame denial, no-store), dan terpisah dari WhatsApp runtime socket.
    - **Administrative Capabilities**:
      - *Whitelist & Access Manager*: Mutasi status `is_allowed` per pengguna, penambahan nomor baru secara manual, dan penghapusan kontak terisolasi.
-     - *Task Explorer & Detail View*: Query daftar tugas, filter status, relasi tugas induk/anak, inspeksi lampiran media, hasil OCR AI, serta jejak audit perbaikan tugas (*audit trail*).
-     - *Cron & Automation Monitoring*: Monitoring siklus scheduler (`Task Reminder Dispatcher`, `Morning Digest Dispatcher`), jeda/aktifkan engine cron secara dinamis, dan pembatalan reminder yang belum berjalan untuk mencegah lonjakan beban atau spam.
+     - *Task Explorer & Detail View*: Query daftar tugas dengan default filter status `active` dan paginasi (20 baris per halaman via query params `offset`/`limit` serta metadata response headers `x-total-count`, `x-offset`, `x-limit`), relasi tugas induk/anak, inspeksi lampiran media, hasil OCR AI, jejak audit perbaikan tugas (*audit trail* dengan `raw_input` trigger), dan panel penyesuaian jadwal tugas (`POST /api/tasks/reschedule`) untuk memodifikasi deadline serta reminder lead time admin.
+     - *Cron & Automation Monitoring*: Monitoring siklus scheduler (`Task Reminder Dispatcher`, `Morning Digest Dispatcher`), jeda/aktifkan engine cron secara dinamis, dan pembatalan reminder yang belum berjalan (`POST /api/crons/reminders/disable`) untuk mencegah lonjakan beban atau spam.
    - **Safety Confirmation Safeguards**: Seluruh aksi mutasi yang berpotensi destruktif atau mengubah alur pengiriman pesan diproteksi oleh dialog konfirmasi sadar-admin (*awareness modal confirmation*) di frontend sebelum request HTTP dikirimkan.
 3. **Database Isolation**:
    - PostgreSQL connections use credentialed TCP (`DATABASE_URL`).
