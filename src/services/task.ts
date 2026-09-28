@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, or } from 'drizzle-orm';
 import {
   tasks,
   taskMessages,
@@ -256,6 +256,33 @@ export async function getLatestPendingDeadlineTask(
       )
     )
     .orderBy(desc(tasks.createdAt))
+    .limit(1);
+
+  return matched[0] ?? null;
+}
+
+/**
+ * Finds the latest reminded or overdue task for user context fallback (e.g. quick reply)
+ */
+export async function getLatestRemindedTask(
+  db: any,
+  userJid: string,
+  withinMinutes = 120
+): Promise<Task | null> {
+  const windowTime = new Date(Date.now() - withinMinutes * 60 * 1000);
+
+  const matched = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.userJid, userJid),
+        eq(tasks.status, 'pending'),
+        gte(tasks.reminded, 1),
+        gt(tasks.updatedAt, windowTime)
+      )
+    )
+    .orderBy(desc(tasks.updatedAt))
     .limit(1);
 
   return matched[0] ?? null;

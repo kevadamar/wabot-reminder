@@ -67,4 +67,67 @@ describe('Seam 2: Adaptive Reminder Calculator & Dispatcher', () => {
     const checkDb = await db.select().from(tasks);
     expect(checkDb[0]?.reminded).toBe(1);
   });
+
+  it('should not dispatch overdue reminder within 15-minute grace period after deadline', async () => {
+    await ensureUserSettings(db, testUserJid, 'User 1', true);
+
+    // Create a task whose deadline was 5 minutes ago and already reminded once
+    const deadlinePast5Min = new Date('2026-09-26T09:55:00.000Z');
+    await createTask(db, {
+      userJid: testUserJid,
+      task: 'Cek email masuk',
+      deadline: deadlinePast5Min,
+      remindAt: new Date('2026-09-26T09:25:00.000Z'),
+      status: 'pending',
+    });
+
+    // Mark task as already reminded once
+    await db.update(tasks).set({ reminded: 1 });
+
+    const sentAlerts: Array<{ taskId: number; isOverdue: boolean }> = [];
+    const mockDispatcher = async (task: any, isOverdue: boolean) => {
+      sentAlerts.push({ taskId: task.id, isOverdue });
+      return 'MSG_ALERT_OVERDUE';
+    };
+
+    // Current time is baseNow (10:00:00), deadline was 09:55:00 (only 5 minutes passed, grace is 15 min)
+    const dispatchedCount = await checkAndDispatchReminders(db, mockDispatcher, baseNow);
+
+    expect(dispatchedCount).toBe(0);
+    expect(sentAlerts.length).toBe(0);
+  });
+
+  it('should dispatch final overdue reminder 15 minutes after deadline and update reminded to 2', async () => {
+    await ensureUserSettings(db, testUserJid, 'User 1', true);
+
+    // Create a task whose deadline was 16 minutes ago and already reminded once
+    const deadlinePast16Min = new Date('2026-09-26T09:44:00.000Z');
+    const task = await createTask(db, {
+      userJid: testUserJid,
+      task: 'Submit laporan mingguan',
+      deadline: deadlinePast16Min,
+      remindAt: new Date('2026-09-26T09:14:00.000Z'),
+      status: 'pending',
+    });
+
+    // Mark task as reminded once
+    await db.update(tasks).set({ reminded: 1 });
+
+    const sentAlerts: Array<{ taskId: number; isOverdue: boolean }> = [];
+    const mockDispatcher = async (t: any, isOverdue: boolean) => {
+      sentAlerts.push({ taskId: t.id, isOverdue });
+      return 'MSG_ALERT_FINAL_OVERDUE';
+    };
+
+    // Current time is baseNow (10:00:00), deadline was 09:44:00 (16 minutes passed, >= 15 min threshold)
+    const dispatchedCount = await checkAndDispatchReminders(db, mockDispatcher, baseNow);
+
+    expect(dispatchedCount).toBe(1);
+    expect(sentAlerts.length).toBe(1);
+    expect(sentAlerts[0]?.taskId).toBe(task.id);
+    expect(sentAlerts[0]?.isOverdue).toBe(true);
+
+    const checkDb = await db.select().from(tasks);
+    expect(checkDb[0]?.reminded).toBe(2);
+  });
 });

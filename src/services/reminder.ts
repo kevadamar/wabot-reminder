@@ -79,11 +79,14 @@ export async function checkAndDispatchReminders(
     }
   }
 
-  // 2. Overdue alerts: pending, reminded = 1, deadline <= now
+  // 2. Overdue alerts (Final Reminder): pending, reminded = 1, deadline <= now - 15 minutes
+  const overdueGraceMinutes = 15;
+  const overdueThreshold = new Date(now.getTime() - overdueGraceMinutes * 60 * 1000);
+
   const overdueTasks = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.status, 'pending'), eq(tasks.reminded, 1), lte(tasks.deadline, now)));
+    .where(and(eq(tasks.status, 'pending'), eq(tasks.reminded, 1), lte(tasks.deadline, overdueThreshold)));
 
   for (const task of overdueTasks) {
     try {
@@ -121,13 +124,13 @@ const REGULAR_FALLBACKS = [
 
 const OVERDUE_FALLBACKS = [
   (task: string, deadline: string) =>
-    `Hai! Masih ingat dengan rencana ini? 😊\n📝 *"${task}"*\n⏰ Rencana sebelumnya: *${deadline}*\n\nTak apa jika sempat tertunda, yuk luangkan waktu sejenak untuk menuntaskannya! 🌟\n_(Beri reaksi ✅ jika sudah tuntas, atau ❌ jika ingin dibatalkan)_`,
+    `🔔 *Pengingat Terakhir (Lewat 15 Menit)*\n\nHai! Rencana ini sudah lewat 15 menit dari jadwal:\n📝 *"${task}"*\n⏰ Target sebelumnya: *${deadline}*\n\nTakutnya kamu lupa atau sedang butuh waktu ekstra agar tidak ke-skip! 😊\n\n*Pilihan Tindakan:*\n✅ Balas *selesai* (atau reaksi emoji) jika sudah beres\n⏱️ Balas *1* (+30 mnt) | *2* (+1 jam) | *3* (besok 09:00) untuk tambah waktu ekstra\n❌ Balas *batal* jika ingin dibatalkan`,
   (task: string, deadline: string) =>
-    `Halo! 🌼 Cuma mau menyapa terkait tugas ini:\n📝 *"${task}"*\n⏰ Target: *${deadline}*\n\nSantai saja, belum terlambat untuk menyelesaikannya sekarang. Kamu hebat! ✨\n_(Beri reaksi ✅ jika sudah selesai, atau ❌ jika dibatalkan)_`,
-  (task: string, deadline: string) =>
-    `Hai! Rencana ini belum sempat kamu selesaikan:\n📝 *"${task}"*\n\nYuk selesaikan pelan-pelan agar harimu makin produktif dan tenang. Semangat! 💪\n_(Beri reaksi ✅ jika sudah beres, atau ❌ jika ingin dibatalkan)_`,
+    `☕ *Check-in Terakhir:*\n📝 *"${task}"*\n⏰ Jadwal: *${deadline}* (lewat 15 menit)\n\nSantai saja, barangkali kamu sedang butuh waktu tambahan agar tidak ke-skip:\n\n1️⃣ Balas *selesai* / reaksi ✅ jika sudah kelar\n2️⃣ Balas *1* (+30 mnt), *2* (+1 jam), atau *3* (besok 09:00) untuk perpanjang waktu\n3️⃣ Balas *ubah waktu: <waktu>* untuk jadwal fleksibel\n4️⃣ Balas *batal* / reaksi ❌ jika ingin dibatalkan ✨`,
   (task: string, _deadline: string) =>
-    `Check-in tugas sejenak! 🌿\n📝 *"${task}"*\n\nKalau masih relevan, yuk tuntaskan hari ini. Kalau sudah tidak perlu, santai saja bisa langsung dibatalkan ya. ✨\n_(Beri reaksi ✅ jika sudah selesai, atau ❌ jika dibatalkan)_`,
+    `Hai! Cuma mau memastikan tugas ini tidak terlewat:\n📝 *"${task}"*\n(Sudah lewat 15 menit dari target)\n\nTakutnya kamu lupa atau butuh waktu ekstra:\n✅ Balas *selesai* jika sudah beres\n⏱️ Balas *1* (+30 mnt) | *2* (+1 jam) | *3* (besok 09:00) agar dijadwalkan ulang dan tidak ke-skip!\n❌ Balas *batal* jika ingin dibatalkan 💪`,
+  (task: string, _deadline: string) =>
+    `🔔 *Pemberitahuan Terakhir:*\n📝 *"${task}"*\n\nTarget waktunya sudah terlewat 15 menit. Barangkali terlupakan atau butuh perpanjangan waktu:\n- Balas *selesai* (atau reaksi ✅)\n- Balas *1* (+30 mnt), *2* (+1 jam), atau *3* (besok 09:00) untuk perpanjang agar tidak ke-skip\n- Balas *batal* (atau reaksi ❌) jika tidak diperlukan lagi ✨`,
 ];
 
 /**
@@ -148,15 +151,23 @@ export async function generateReminderMessage(
   const prompt = `Kamu adalah asisten pribadi WhatsApp yang ramah, hangat, perhatian, dan natural.
 ${parentContext}Tugas: Buat pesan pengingat ramah untuk tugas: "${task.task}".
 Waktu target: "${deadlineStr}".
-Status: ${isOverdue ? 'Target waktu sudah terlewat sedikit (tetap santai dan jangan menuntut)' : 'Mendekati waktu target'}.
+Status: ${
+    isOverdue
+      ? 'PENGINGAT TERAKHIR karena target waktu sudah lewat 15 menit. Berikan check-in hangat bahwa kamu khawatir pengguna lupa atau sedang butuh waktu ekstra agar tugasnya tidak ke-skip.'
+      : 'Mendekati waktu target'
+  }.
 
 Panduan Bahasa & Tone of Voice:
 1. Bersahabat, suportif, dan menyenangkan (seperti teman dekat yang mengingatkan).
 2. DILARANG KERAS menggunakan kata kaku bernada menagih hutang, seperti: "jatuh tempo", "peringatan tenggat waktu", "telah melewati batas waktu", "menagih", atau kalimat dingin semacamnya.
 3. DILARANG terdengar seperti template robot AI yang klise.
 4. Tampilkan nama tugas dengan format *"${task.task}"* dan waktu deadline secara natural.${parentTaskTitle ? ` Sebutkan juga proyek induknya: *"${parentTaskTitle}"*.` : ''}
-5. Akhiri dengan ajakan santai untuk memberi reaksi ✅ jika sudah beres, atau ❌ jika dibatalkan.
-6. Buat ringkas (maksimal 3-4 baris). Balas langsung dengan isi pesannya saja tanpa tanda kutip di awal/akhir.`;
+${
+  isOverdue
+    ? '5. Sertakan saran tindakan yang jelas agar tidak ke-skip:\n   - Beri reaksi ✅ atau balas "selesai" jika sudah tuntas.\n   - Balas 1 (+30 mnt), 2 (+1 jam), atau 3 (besok 09:00) untuk perpanjang waktu ekstra.\n   - Beri reaksi ❌ atau balas "batal" jika ingin dibatalkan.'
+    : '5. Akhiri dengan ajakan santai untuk memberi reaksi ✅ jika sudah beres, atau ❌ jika dibatalkan.'
+}
+6. Buat ringkas dan nyaman dibaca (maksimal 4-6 baris). Balas langsung dengan isi pesannya saja tanpa tanda kutip di awal/akhir.`;
 
   const gemini = customClient !== undefined ? customClient : getGeminiClient();
   if (gemini) {

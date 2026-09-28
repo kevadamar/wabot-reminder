@@ -128,7 +128,7 @@ sequenceDiagram
     Router->>User: "🎉 Tugas Selesai! [ID: 15] meeting sama klien\n\n_Keren banget! Meeting sukses, kamu luar biasa!_"
 ```
 
-### 3.3 Reminder Dispatcher Loop
+### 3.3 Reminder Dispatcher Loop & 15-Minute Overdue Grace
 
 ```mermaid
 sequenceDiagram
@@ -139,16 +139,35 @@ sequenceDiagram
     participant Bot as Baileys Socket
     actor User as WhatsApp User
     
+    rect rgb(240, 248, 255)
+    Note over Cron, DB: Phase 1: Advance Lead Reminder (remind_at <= NOW)
     Cron->>Worker: checkAndDispatchReminders(db, sendCallback)
     Worker->>DB: SELECT * FROM tasks WHERE status = 'pending' AND reminded = 0 AND remind_at <= NOW()
     DB-->>Worker: [Task 15]
-    
     Worker->>Bot: sendMessage(userJid, "⏰ Pengingat Tugas...")
-    Bot->>User: Delivers reminder alert
+    Bot->>User: Delivers advance reminder alert
     Bot-->>Worker: messageId = "ALERT_MSG_88"
-    
     Worker->>DB: UPDATE tasks SET reminded = 1
     Worker->>DB: INSERT INTO task_messages (task_id, message_id)
+    end
+
+    rect rgb(255, 250, 240)
+    Note over Cron, DB: Phase 2: Final Overdue Reminder (deadline <= NOW - 15 mins)
+    Cron->>Worker: checkAndDispatchReminders(db, sendCallback)
+    Worker->>DB: SELECT * FROM tasks WHERE status = 'pending' AND reminded = 1 AND deadline <= NOW - 15m
+    DB-->>Worker: [Task 15]
+    Worker->>Bot: sendMessage(userJid, "🔔 Pengingat Terakhir (Lewat 15 Menit)...")
+    Bot->>User: Delivers final check-in with suggestions (✅ selesai, ⏱️ 1/2/3 perpanjang, ❌ batal)
+    Bot-->>Worker: messageId = "FINAL_ALERT_99"
+    Worker->>DB: UPDATE tasks SET reminded = 2
+    Worker->>DB: INSERT INTO task_messages (task_id, message_id)
+    end
+
+    opt User Quick Extension Reply
+    User->>Bot: Quotes FINAL_ALERT_99 with "1" (+30m)
+    Bot->>DB: rescheduleTask(15, newDeadline = NOW + 30m, reminded = 0)
+    Bot->>User: "⏱️ Waktu Ekstra Ditambahkan! Pengingat otomatis diatur ulang."
+    end
 ```
 
 ---

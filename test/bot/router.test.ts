@@ -400,5 +400,87 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(sentMessages[0]).toContain('Detail & Struktur Tugas');
     expect(sentMessages[0]).toContain('Tugas Utama Proyek');
   });
+
+  it('should extend deadline by 30 mins and reset reminded when user replies "1" to overdue reminder', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Review PR Backend',
+      deadline: new Date(Date.now() - 20 * 60 * 1000), // 20 mins ago
+      status: 'pending',
+    });
+
+    // Mark task as alerted (overdue final reminder sent)
+    await db.update(tasks).set({ reminded: 2 });
+
+    const reminderMsgId = 'REMINDER_OVERDUE_MSG_1';
+    await linkTaskMessage(db, task.id, reminderMsgId);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'BOT_CONFIRM_1' } };
+      },
+    };
+
+    // User replies (quotes) the overdue reminder with "1" (+30 mins)
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_REPLY_1' },
+      message: {
+        extendedTextMessage: {
+          text: '1',
+          contextInfo: { stanzaId: reminderMsgId },
+        },
+      },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Waktu Ekstra Ditambahkan!');
+    expect(sentMessages[0]).toContain('Review PR Backend');
+
+    // Verify task in DB has updated deadline in the future and reminded reset to 0
+    const checkDb = await db.select().from(tasks);
+    expect(checkDb[0]?.reminded).toBe(0);
+    expect(checkDb[0]?.deadline?.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('should prompt extension choices when user replies "buat lagi" to overdue reminder', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Follow up client vendor',
+      deadline: new Date(Date.now() - 25 * 60 * 1000),
+      status: 'pending',
+    });
+
+    await db.update(tasks).set({ reminded: 2 });
+    const reminderMsgId = 'REMINDER_OVERDUE_MSG_2';
+    await linkTaskMessage(db, task.id, reminderMsgId);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'BOT_PROMPT_EXTEND' } };
+      },
+    };
+
+    // User quotes and sends "buat lagi"
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_REPLY_BUAT_LAGI' },
+      message: {
+        extendedTextMessage: {
+          text: 'buat lagi',
+          contextInfo: { stanzaId: reminderMsgId },
+        },
+      },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Mau perpanjang berapa lama');
+    expect(sentMessages[0]).toContain('+30 menit');
+    expect(sentMessages[0]).toContain('besok jam 09:00');
+  });
 });
 

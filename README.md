@@ -124,7 +124,15 @@ Saat pertama kali dijalankan, **QR Code** akan muncul di terminal. Pindai (scan)
 
 ### 🔄 2. Format Balas Pesan (Quoted Reply)
 Pengguna dapat langsung mengutip (quote/reply) balon pesan bot untuk melakukan perubahan cepat:
-- **Mengubah Waktu / Jadwal**:
+- **Pengingat Terakhir (15 Menit Setelah Deadline)**:
+  > Jika target waktu terlewat 15 menit, bot mengirimkan pengingat terakhir bernada empati dengan saran tindakan:
+  > - Balas `1` / `1️⃣` ➔ Tambah waktu ekstra +30 menit.
+  > - Balas `2` / `2️⃣` ➔ Tambah waktu ekstra +1 jam.
+  > - Balas `3` / `3️⃣` ➔ Tunda ke besok pagi (09:00).
+  > - Balas `buat lagi` ➔ Menampilkan pilihan perpanjangan waktu agar tugas tidak ke-skip.
+  > - Balas `selesai` (atau reaksi ✅) ➔ Tandai selesai.
+  > - Balas `batal` (atau reaksi ❌) ➔ Batalkan tugas.
+- **Mengubah Waktu / Jadwal Bebas**:
   > Balas pesan tugas: `ubah waktu: besok jam 15:00` atau `reschedule: lusa jam 10 pagi`
   > *(Sistem otomatis menghitung ulang alarm pengingat dan me-reset status pengingat)*
 - **Mengubah Judul / Nama Tugas**:
