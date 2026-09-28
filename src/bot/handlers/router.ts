@@ -18,6 +18,7 @@ import {
   addAttachmentToTask,
   getTaskAttachments,
   updateImageQualityMode,
+  updateUserName,
 } from '../../services/task.js';
 import { parseTaskMessage, parseLocalTask } from '../../services/nlp.js';
 import { calculateRemindAt } from '../../services/reminder.js';
@@ -85,6 +86,10 @@ Balas langsung ke pesan tugas yang ingin diubah:
 • */setting media tinggi* : Simpan hingga 4K (4096px, default)
 • */setting media hemat* : Simpan resolusi hemat (2048px)
 • */setting media* : Cek status pengaturan saat ini
+
+👤 *Nama Pengguna:*
+• */username <NamaKamu>* : Atur nama panggilan agar bot mengenali kamu
+• */username* : Cek nama panggilan saat ini
 
 ✅ *Menyelesaikan Tugas:*
 • Beri reaksi emoji ✅ pada pesan pengingat, ATAU
@@ -500,6 +505,33 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
     await sock.sendMessage(remoteJid, {
       text: `⚠️ Pilihan kualitas gambar tidak dikenali. Gunakan:\n• */setting media tinggi* (Maks 4K)\n• */setting media hemat* (Maks 2K)`,
+    });
+    return;
+  }
+
+  // 3.7. Username setting command (/username <Nama> or /username)
+  const usernameMatch = trimmedText.match(/^(?:\/?username|\/nama)(?:\s+(.+))?$/i);
+  if (usernameMatch) {
+    const rawName = usernameMatch[1]?.trim();
+    if (!rawName || rawName.toLowerCase() === 'status' || rawName.toLowerCase() === 'cek' || rawName.toLowerCase() === 'info') {
+      const currentName = user.name || 'Belum diatur';
+      await sock.sendMessage(remoteJid, {
+        text: `👤 *Pengaturan Nama Pengguna*\n\nNama kamu saat ini: *${currentName}*\n\nNama ini digunakan agar sistem bot bisa mengenali kamu di sapaan ramah, pengingat tugas, dan ringkasan pagi harian. ✨\n\nUntuk mengubah nama, ketik:\n• */username <NamaKamu>*\n(contoh: _/username Keva_)`,
+      });
+      return;
+    }
+
+    const newName = rawName.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (newName.length < 2 || newName.length > 50) {
+      await sock.sendMessage(remoteJid, {
+        text: `⚠️ Nama pengguna minimal 2 karakter dan maksimal 50 karakter ya.`,
+      });
+      return;
+    }
+
+    await updateUserName(db, remoteJid, newName);
+    await sock.sendMessage(remoteJid, {
+      text: `✅ *Nama Berhasil Disimpan!*\n\nHalo, *${newName}*! 👋 Sekarang sistem bot sudah mengenali kamu dengan nama ini untuk sapaan, pengingat tugas, dan ringkasan pagi. ✨`,
     });
     return;
   }

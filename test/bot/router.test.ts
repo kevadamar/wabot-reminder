@@ -592,4 +592,50 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(createdTasks.length).toBe(1);
     expect(createdTasks[0]?.task).toContain('Media briefing');
   });
+
+  it('should display username status with "/username"', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner Lama', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_USER_STATUS' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_USER_STATUS' },
+      message: { conversation: '/username' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Pengaturan Nama Pengguna');
+    expect(sentMessages[0]).toContain('Owner Lama');
+    expect(sentMessages[0]).toContain('/username <NamaKamu>');
+  });
+
+  it('should update username with "/username <Nama>"', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner Lama', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_USER_SET' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_USER_SET' },
+      message: { conversation: '/username Keva Damar' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Nama Berhasil Disimpan');
+    expect(sentMessages[0]).toContain('Keva Damar');
+
+    const updated = await db.select().from(userSettings);
+    expect(updated[0]?.name).toBe('Keva Damar');
+  });
 });

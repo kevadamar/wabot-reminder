@@ -12,6 +12,7 @@ import {
   updateTaskDeadline,
   getLatestPendingDeadlineTask,
   updateImageQualityMode,
+  updateUserName,
 } from '../../src/services/task.js';
 
 describe('Seam 3: Task Management & State Operations', () => {
@@ -176,5 +177,15 @@ describe('Seam 3: Task Management & State Operations', () => {
 
     const updatedHigh = await updateImageQualityMode(db, testUserJid, 'high');
     expect(updatedHigh?.imageQualityMode).toBe('high');
+  });
+
+  it('should update user name in user settings', async () => {
+    await ensureUserSettings(db, testUserJid, 'Budi Test', true);
+
+    const updated = await updateUserName(db, testUserJid, 'Keva Damar');
+    expect(updated?.name).toBe('Keva Damar');
+
+    const check = await db.select().from(userSettings);
+    expect(check[0]?.name).toBe('Keva Damar');
   });
 });

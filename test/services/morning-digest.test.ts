@@ -114,4 +114,53 @@ describe('Morning digest formatting', () => {
     expect(messages[1]).toContain('08.00 — Rapat tim');
     expect(messages[1]).not.toContain('Pagi cerah membuka hari');
   });
+
+  it('formats yesterday accomplishments, top 3 overdue tasks, and mood-boosting suggestions', () => {
+    const messages = formatMorningDigestMessages({
+      displayName: 'Keva',
+      timezone: 'Asia/Jakarta',
+      now: new Date('2026-09-29T00:00:00.000Z'),
+      localDate: '2026-09-29',
+      motivation: 'Pagi cerah membuka hari,\nSemoga semua urusan lancar.',
+      yesterdayResolvedCount: 4,
+      overdueTasks: [
+        { id: 10, task: 'Beli kopi', deadline: new Date('2026-09-28T09:00:00.000Z') },
+        { id: 11, task: 'Kirim invoice', deadline: new Date('2026-09-28T10:00:00.000Z') },
+        { id: 12, task: 'Cek server', deadline: new Date('2026-09-28T14:00:00.000Z') },
+        { id: 13, task: 'Meeting vendor', deadline: new Date('2026-09-28T16:00:00.000Z') },
+      ],
+      totalOverdueCount: 4,
+      tasks: [
+        { id: 14, task: 'Sprint planning', deadline: new Date('2026-09-29T02:00:00.000Z') },
+      ],
+    });
+
+    expect(messages).toHaveLength(1);
+    const text = messages[0]!;
+
+    // 1. Yesterday recap
+    expect(text).toContain('📊 *Kemarin:* 4 tugas berhasil kamu selesaikan 🎉 Mantap!');
+
+    // 2. Overdue section (top 3 shown)
+    expect(text).toContain('⚠️ *Tugas Terlewat (Perlu Perhatian):*');
+    expect(text).toContain('[ID: 10] *Beli kopi*');
+    expect(text).toContain('[ID: 11] *Kirim invoice*');
+    expect(text).toContain('[ID: 12] *Cek server*');
+    expect(text).not.toContain('[ID: 13] *Meeting vendor*');
+    expect(text).toContain('...dan 1 tugas terlewat lainnya');
+
+    // 3. Mood-boosting & helpful suggestions
+    expect(text).toContain('bukan lomba lari kok');
+    expect(text).toContain('selesai <ID>');
+    expect(text).toContain('ubah waktu <ID> hari ini');
+    expect(text).toContain('list');
+
+    // 4. Today's agenda
+    expect(text).toContain('📋 *Agenda Hari Ini');
+    expect(text).toContain('[ID: 14]');
+    expect(text).toContain('Sprint planning');
+
+    // 5. Motivation
+    expect(text).toContain('Pagi cerah membuka hari');
+  });
 });

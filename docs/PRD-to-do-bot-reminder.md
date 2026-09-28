@@ -75,12 +75,19 @@ A lightweight WhatsApp bot designed to help users capture and manage their tasks
 ### Feature 6: Task Inspection & Management Commands
 *   **`/list` / `daftar`**: Returns active pending tasks with their IDs, formatted friendly in Indonesian with relative time.
 *   **`/batal <ID>` / `hapus <ID>`**: Cancels a task, marking status `cancelled`.
+*   **`/username <Nama>`**: Mengatur nama panggilan pengguna agar sistem bot mengenali pengguna di sapaan personal, pengingat, dan ringkasan pagi.
+*   **`/username`**: Menampilkan nama panggilan yang saat ini tersimpan di sistem.
 *   **`/help` / `bantuan`**: Displays a warm, non-technical guide explaining how to use the bot.
 
 ### Feature 7: Opt-in Daily Morning Task Digest
 *   **Trigger:** Scheduled background worker running on local date/time per user.
 *   **Behavior:** Default-nya nonaktif. Pengguna mengaktifkan melalui `/pagi aktif` dan dapat mengatur jam lokal via `/pagi waktu HH:mm` (default 06:00).
-*   **Content:** Menyapa pengguna, menampilkan seluruh tugas aktif yang jatuh tempo pada hari lokal tersebut (diurutkan berdasarkan deadline ascending), dan ditutup satu pantun/kalimat motivasi penyemangat yang di-cache per tanggal (dihasilkan oleh Gemini atau koleksi pantun lokal).
+*   **Content:**
+    *   **Personal Greeting:** Menyapa pengguna dengan nama yang tersimpan (`/username` atau nama akun WhatsApp).
+    *   **Yesterday Recap:** Menampilkan jumlah tugas yang berhasil diselesaikan kemarin (`📊 Kemarin: X tugas berhasil diselesaikan 🎉`).
+    *   **Overdue Backlog Awareness:** Mengingatkan tugas tertinggal dari hari-hari sebelumnya (dibatasi top 3 teratas dengan ID dan waktu lama) serta saran tindakan ramah & moodbooster (*selesai <ID>*, *ubah waktu <ID> hari ini*, dan cek agenda lengkap via *list*).
+    *   **Today's Scheduled Tasks:** Menampilkan seluruh tugas aktif yang jatuh tempo hari ini secara kronologis lengkap dengan ID tugas.
+    *   **Motivation:** Ditutup dengan satu pantun/kalimat motivasi penyemangat yang di-cache per tanggal (dihasilkan oleh Gemini atau koleksi pantun lokal).
 *   **Tracking:** Menggunakan tabel `daily_digest_deliveries` untuk memastikan tepat satu pengiriman per hari per pengguna (idempotent).
 
 ### Feature 8: Secure Media Attachment & Image Quality Modes

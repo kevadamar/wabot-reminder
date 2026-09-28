@@ -125,6 +125,18 @@ function formatTime(date: Date, timezone: string): string {
   }).format(date);
 }
 
+function formatOverdueDeadline(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone: timezone,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
+}
+
 export function formatMorningDigestMessages(input: {
   displayName?: string | null;
   timezone: string;
@@ -132,6 +144,9 @@ export function formatMorningDigestMessages(input: {
   localDate: string;
   motivation: string;
   tasks: MorningDigestTask[];
+  overdueTasks?: MorningDigestTask[];
+  totalOverdueCount?: number;
+  yesterdayResolvedCount?: number;
   maxTasksPerMessage?: number;
 }): string[] {
   const displayName = safeWhatsappText(input.displayName || '', 80);
@@ -143,6 +158,33 @@ export function formatMorningDigestMessages(input: {
     month: 'long',
   }).format(input.now);
   const motivation = input.motivation.trim().slice(0, 240);
+
+  let yesterdaySection = '';
+  if (input.yesterdayResolvedCount && input.yesterdayResolvedCount > 0) {
+    yesterdaySection = `📊 *Kemarin:* ${input.yesterdayResolvedCount} tugas berhasil kamu selesaikan 🎉 Mantap!\n\n`;
+  }
+
+  let overdueSection = '';
+  const overdueList = input.overdueTasks ?? [];
+  const totalOverdue = input.totalOverdueCount ?? overdueList.length;
+
+  if (overdueList.length > 0) {
+    const topOverdue = overdueList.slice(0, 3);
+    const overdueLines = topOverdue.map((t) => {
+      const timeStr = t.deadline ? formatOverdueDeadline(new Date(t.deadline), input.timezone) : 'tanpa tenggat';
+      return `• [ID: ${t.id}] *${safeWhatsappText(t.task, 150)}* _(${timeStr})_`;
+    });
+
+    const moreNotice = totalOverdue > 3 ? `\n_...dan ${totalOverdue - 3} tugas terlewat lainnya._` : '';
+
+    overdueSection =
+      `⚠️ *Tugas Terlewat (Perlu Perhatian):*\n${overdueLines.join('\n')}${moreNotice}\n\n` +
+      `_Santai aja, bukan lomba lari kok! Yuk cicil pelan-pelan biar harimu makin plong dan happy:_\n` +
+      `• Ketik *selesai <ID>* jika kemarin sudah beres ✨\n` +
+      `• Ketik *ubah waktu <ID> hari ini* untuk lanjut gas hari ini 🎯\n` +
+      `• Ketik *list* untuk intip semua tugas aktifmu kapan saja 🚀\n\n`;
+  }
+
   const sortedTasks = [...input.tasks]
     .filter((task) => task.deadline)
     .sort((left, right) => {
@@ -151,6 +193,11 @@ export function formatMorningDigestMessages(input: {
     });
 
   if (sortedTasks.length === 0) {
+    if (yesterdaySection || overdueSection) {
+      return [
+        `${greeting}\n\n${yesterdaySection}${overdueSection}📋 *Agenda Hari Ini (${dateLabel}):*\nBelum ada task terjadwal untuk hari ini. Nikmati pagi dan atur harimu dengan tenang. ✨\n\n${motivation}`,
+      ];
+    }
     return [
       `${greeting}\nBelum ada task terjadwal untuk ${dateLabel}. Nikmati pagi dan atur harimu dengan tenang. ✨\n\n${motivation}`,
     ];
@@ -163,10 +210,10 @@ export function formatMorningDigestMessages(input: {
     const lines = chunk.map((task, index) => {
       const deadline = new Date(task.deadline!);
       const overdue = deadline.getTime() < input.now.getTime() ? ' ⚠️ terlewat' : '';
-      return `${offset + index + 1}. ${formatTime(deadline, input.timezone)} — ${safeWhatsappText(task.task, 300)}${overdue}`;
+      return `${offset + index + 1}. [ID: ${task.id}] ${formatTime(deadline, input.timezone)} — ${safeWhatsappText(task.task, 300)}${overdue}`;
     });
     const header = offset === 0
-      ? `${greeting}\nIni agenda kamu untuk ${dateLabel}:`
+      ? `${greeting}\n\n${yesterdaySection}${overdueSection}📋 *Agenda Hari Ini (${dateLabel}):*`
       : `📋 Lanjutan agenda ${dateLabel}:`;
     const footer = offset === 0 ? `\n\n${motivation}` : '';
     messages.push(`${header}\n\n${lines.join('\n')}${footer}`);
@@ -231,6 +278,54 @@ export async function listTasksForLocalDate(
       )
     )
     .orderBy(asc(tasks.deadline), asc(tasks.id));
+}
+
+export async function listOverdueTasks(
+  db: any,
+  userJid: string,
+  localDate: string,
+  timezone: string
+): Promise<Task[]> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) throw new Error('INVALID_LOCAL_DATE');
+
+  const start = sql`(${localDate}::date::timestamp AT TIME ZONE ${timezone})`;
+  return db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.userJid, userJid),
+        eq(tasks.status, 'pending'),
+        lt(tasks.deadline, start)
+      )
+    )
+    .orderBy(asc(tasks.deadline), asc(tasks.id));
+}
+
+export async function countYesterdayResolvedTasks(
+  db: any,
+  userJid: string,
+  localDate: string,
+  timezone: string
+): Promise<number> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate)) throw new Error('INVALID_LOCAL_DATE');
+
+  const yesterdayStart = sql`(${localDate}::date - 1)::timestamp AT TIME ZONE ${timezone}`;
+  const todayStart = sql`${localDate}::date::timestamp AT TIME ZONE ${timezone}`;
+
+  const result = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.userJid, userJid),
+        eq(tasks.status, 'resolved'),
+        gte(tasks.updatedAt, yesterdayStart),
+        lt(tasks.updatedAt, todayStart)
+      )
+    );
+
+  return Number(result[0]?.count ?? 0);
 }
 
 export async function claimMorningDigestDelivery(
@@ -552,6 +647,18 @@ export async function dispatchMorningDigests(
         claim.localDate,
         claim.user.timezone
       );
+      const overdueTasks = await listOverdueTasks(
+        db,
+        claim.user.userJid,
+        claim.localDate,
+        claim.user.timezone
+      );
+      const yesterdayResolvedCount = await countYesterdayResolvedTasks(
+        db,
+        claim.user.userJid,
+        claim.localDate,
+        claim.user.timezone
+      );
       const motivation = motivations.get(claim.localDate) ?? localMotivationForDate(claim.localDate);
       const messages = formatMorningDigestMessages({
         displayName: claim.user.name,
@@ -560,6 +667,9 @@ export async function dispatchMorningDigests(
         localDate: claim.localDate,
         motivation: motivation.text,
         tasks: dailyTasks,
+        overdueTasks,
+        totalOverdueCount: overdueTasks.length,
+        yesterdayResolvedCount,
       });
 
       let messageId: string | null = null;

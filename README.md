@@ -131,12 +131,14 @@ Saat pertama kali dijalankan, **QR Code** akan muncul di terminal. Pindai (scan)
 | `/pagi nonaktif` | Menonaktifkan ringkasan pagi tanpa menghapus waktu pilihan | `/pagi nonaktif` |
 | `/pagi waktu HH:mm` | Mengatur waktu lokal ringkasan pagi | `/pagi waktu 06:30` |
 | `/pagi status` | Melihat status, waktu, dan timezone ringkasan pagi | `/pagi status` |
+| `/username <Nama>` | Mengatur nama panggilan agar sistem mengenali pengguna | `/username Keva` |
+| `/username` | Mengecek nama panggilan yang tersimpan saat ini | `/username` |
 | `/setting media` | Mengecek status kualitas gambar lampiran saat ini | `/setting media` |
 | `/setting media tinggi` | Kualitas tinggi (Maks 4K / 4096px, default, quality 85) | `/setting media tinggi` |
 | `/setting media hemat` | Kualitas hemat (Maks 2K / 2048px, quality 85) | `/setting media hemat` |
 | `/help` atau `bantuan` | Menampilkan panduan lengkap interaksi | `bantuan` |
 
-Ringkasan pagi bersifat **opt-in** dan default-nya nonaktif. Bot hanya memanggil AI ketika minimal satu user aktif benar-benar due. Satu pantun pendek di-cache per tanggal dan dipakai ulang; jika AI timeout atau gagal, bot langsung memakai pantun lokal.
+Ringkasan pagi bersifat **opt-in** (default-nya nonaktif). Saat aktif, bot mengirimkan sapaan personal sesuai nama pengguna (`/username`), rekap tugas selesai kemarin (`📊 Kemarin: X tugas selesai 🎉`), pengingat ramah untuk tugas terlewat/overdue (maksimal 3 tugas teratas dengan saran aksi cepat dan ajakan cek `list`), serta agenda tugas hari ini lengkap dengan ID tugas. Bot hanya memanggil AI ketika minimal satu user aktif benar-benar due. Satu pantun pendek di-cache per tanggal dan dipakai ulang; jika AI timeout atau gagal, bot langsung memakai pantun lokal.
 
 Kualitas gambar lampiran default-nya adalah **tinggi (high / 4K max)** dengan sanitasi CDR (menghapus GPS/EXIF dan proteksi pixel flood). Pengguna dapat mengubahnya menjadi hemat (2K max) kapan saja via `/setting media hemat`.
 

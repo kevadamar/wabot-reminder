@@ -73,6 +73,26 @@ export async function updateImageQualityMode(
 }
 
 /**
+ * Updates the display name for a user
+ */
+export async function updateUserName(
+  db: any,
+  userJid: string,
+  name: string
+): Promise<UserSetting | null> {
+  const updated = await db
+    .update(userSettings)
+    .set({
+      name: name.trim().slice(0, 128),
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userJid, userJid))
+    .returning();
+
+  return updated[0] ?? null;
+}
+
+/**
  * Creates a new task in database
  */
 export async function createTask(db: any, input: CreateTaskInput): Promise<Task> {

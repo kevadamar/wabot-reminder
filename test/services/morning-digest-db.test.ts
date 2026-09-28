@@ -9,8 +9,10 @@ import {
 } from '../../src/db/schema.js';
 import {
   claimMorningDigestDelivery,
+  countYesterdayResolvedTasks,
   dispatchMorningDigests,
   getOrCreateMorningMotivation,
+  listOverdueTasks,
   listTasksForLocalDate,
   updateMorningDigestSettings,
 } from '../../src/services/morning-digest.js';
@@ -70,6 +72,31 @@ describe('Morning digest persistence', () => {
       'Jam delapan kedua',
       'Jam delapan pertama',
     ]);
+  });
+
+  it('lists overdue tasks from previous dates and counts yesterday resolved tasks', async () => {
+    await ensureUserSettings(db, userJid, 'Keva', true);
+    await db.insert(tasks).values([
+      // Overdue tasks (before 2026-09-29 00:00 WIB = 2026-09-28 17:00 UTC)
+      { userJid, task: 'Tugas kemarin pagi', status: 'pending', deadline: new Date('2026-09-28T02:00:00.000Z') },
+      { userJid, task: 'Tugas kemarin sore', status: 'pending', deadline: new Date('2026-09-28T10:00:00.000Z') },
+      // Today task
+      { userJid, task: 'Tugas hari ini', status: 'pending', deadline: new Date('2026-09-29T02:00:00.000Z') },
+      // Tasks resolved yesterday (between 2026-09-28 00:00 WIB and 2026-09-29 00:00 WIB)
+      { userJid, task: 'Selesai kemarin 1', status: 'resolved', updatedAt: new Date('2026-09-28T03:00:00.000Z') },
+      { userJid, task: 'Selesai kemarin 2', status: 'resolved', updatedAt: new Date('2026-09-28T09:00:00.000Z') },
+      // Task resolved two days ago
+      { userJid, task: 'Selesai lusa lalu', status: 'resolved', updatedAt: new Date('2026-09-27T03:00:00.000Z') },
+    ]);
+
+    const overdue = await listOverdueTasks(db, userJid, '2026-09-29', 'Asia/Jakarta');
+    expect(overdue.map((t) => t.task)).toEqual([
+      'Tugas kemarin pagi',
+      'Tugas kemarin sore',
+    ]);
+
+    const yesterdayResolved = await countYesterdayResolvedTasks(db, userJid, '2026-09-29', 'Asia/Jakarta');
+    expect(yesterdayResolved).toBe(2);
   });
 
   it('claims at most one delivery per user and local date', async () => {
