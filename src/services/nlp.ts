@@ -2,11 +2,14 @@ import * as chrono from 'chrono-node';
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../config/index.js';
 import { recordAiUsage, telemetry } from './telemetry.js';
+import sentimentLexicon from '../data/sentiment-lexicon.json' with { type: 'json' };
 
 export interface SentimentResult {
   hasProfanity: boolean;
   isDistress: boolean;
   isToxicOnly: boolean;
+  isFrustrated?: boolean;
+  tone?: 'distress' | 'toxic' | 'frustrated' | 'neutral' | 'positive';
 }
 
 export interface ParseResult {
@@ -30,9 +33,21 @@ export const GREETINGS_REGEX = /^(halo|hai|hey|p|ping|assalamualaikum|tes|test|p
 
 export const TASK_VERBS_REGEX = /\b(beli|bayar|kirim|kerjakan|rapat|meeting|telpon|telepon|hubungi|call|transfer|catat|ingat|ingatkan|bikin|buat|periksa|cek|bereskan|beresin|ambil|jemput|selesaikan|baca|tulis|submit|upload|download|presentasi|facial|service|servis|olahraga|gym|lari|belanja|jadwal)\b/i;
 
-export const PROFANITY_REGEX = /\b(anjing|babi|bangsat|kontol|memek|jembut|tai|taek|taik|asu|pantek|goblok|tolol|bego|idiot|bajingan|kampret|brengsek)\b/gi;
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-export const DISTRESS_REGEX = /\b(mau mati|pengen mati|capek hidup|pengen nyerah|gamau hidup|bunuh diri|stres berat|stress berat|depresi berat)\b/i;
+// Compile broad profanity regex: matches root words, common affixes (di-, ke-, ng-, -an, -nya)
+const toxicWordPatterns = sentimentLexicon.toxicWords.map(escapeRegex).join('|');
+export const PROFANITY_REGEX = new RegExp(`\\b(?:di|ke|ng)?(?:${toxicWordPatterns})(?:an|nya|mu)?\\b`, 'gi');
+
+// Compile broad distress regex
+const distressPatterns = sentimentLexicon.distressPhrases.map(escapeRegex).join('|');
+export const DISTRESS_REGEX = new RegExp(`(?:${distressPatterns})`, 'i');
+
+// Frustration keywords
+const frustrationPatterns = sentimentLexicon.frustrationKeywords.map(escapeRegex).join('|');
+export const FRUSTRATION_REGEX = new RegExp(`(?:${frustrationPatterns})`, 'i');
 
 /**
  * Detects whether a message contains profanity/swearing, extreme distress/burnout,
@@ -43,15 +58,23 @@ export function detectSentiment(text: string): SentimentResult {
   const hasProfanity = PROFANITY_REGEX.test(text);
   PROFANITY_REGEX.lastIndex = 0;
   const isDistress = DISTRESS_REGEX.test(text);
+  const isFrustrated = FRUSTRATION_REGEX.test(text);
 
   const hasTaskVerb = TASK_VERBS_REGEX.test(text);
   const hasTimeKeyword = /\b(besok|nanti|jam\s*\d|pukul|deadline|hari ini|minggu depan|lusa)\b/i.test(text);
   const isToxicOnly = hasProfanity && !hasTaskVerb && !hasTimeKeyword && !isDistress;
 
+  let tone: SentimentResult['tone'] = 'neutral';
+  if (isDistress) tone = 'distress';
+  else if (isToxicOnly) tone = 'toxic';
+  else if (isFrustrated || hasProfanity) tone = 'frustrated';
+
   return {
     hasProfanity,
     isDistress,
     isToxicOnly,
+    isFrustrated,
+    tone,
   };
 }
 
@@ -393,13 +416,19 @@ Analisis pesan berikut: "${trimmed}"
 
 Instruksi:
 1. Tentukan apakah pesan ini adalah sebuah tugas (isTask: true/false).
-2. Bersihkan judul tugas dari kata penunjuk waktu, frasa permintaan pengingat, dan kata makian/umpatan jika ada (taskTitle).
-3. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z").
-4. ATURAN WAJIB: Jika pengguna TIDAK menyebutkan keterangan tanggal, hari, jam, atau waktu sama sekali, JANGAN PERNAH berasumsi, menebak, atau menentukan sendiri batas waktunya! Isi deadline: null dan needsDeadline: true.
-5. Jika pengguna secara eksplisit meminta waktu pengingat awal (contoh: "ingatkan 30 menit sebelumnya", "ingatkan 1 jam sebelum", "remind me 15 mins before", "ingatkan H-1"), hitung dan ekstrak durasinya dalam satuan menit integer (contoh: 30, 60, 120, 1440) ke field reminderLeadMinutes. Jika pengguna TIDAK meminta waktu pengingat khusus, isi reminderLeadMinutes: null.
+2. Analisis sentimen atau nuansa emosi dari pesan (sentiment):
+   - "distress": jika pengguna mengekspresikan kepenatan mental, burnout berat, keputusasaan, atau ingin menyerah.
+   - "toxic": jika pesan murni berisi makian, hinaan kasar, atau umpatan agresif kepada bot tanpa tujuan tugas.
+   - "frustrated": jika pengguna mengekspresikan kekesalan/stres namun tetap menyebutkan tugas yang ingin dikerjakan.
+   - "neutral": jika pesan wajar atau to-do biasa.
+   - "positive": jika pesan ceria, antusias, atau berterima kasih.
+3. Bersihkan judul tugas dari kata penunjuk waktu, frasa permintaan pengingat, dan kata makian/umpatan jika ada (taskTitle).
+4. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z").
+5. ATURAN WAJIB: Jika pengguna TIDAK menyebutkan keterangan tanggal, hari, jam, atau waktu sama sekali, JANGAN PERNAH berasumsi, menebak, atau menentukan sendiri batas waktunya! Isi deadline: null dan needsDeadline: true.
+6. Jika pengguna secara eksplisit meminta waktu pengingat awal (contoh: "ingatkan 30 menit sebelumnya", "ingatkan 1 jam sebelum", "remind me 15 mins before", "ingatkan H-1"), hitung dan ekstrak durasinya dalam satuan menit integer (contoh: 30, 60, 120, 1440) ke field reminderLeadMinutes. Jika pengguna TIDAK meminta waktu pengingat khusus, isi reminderLeadMinutes: null.
 
 Balas HANYA dengan JSON valid tanpa markdown formatting:
-{"isTask": boolean, "taskTitle": string, "deadline": string | null, "needsDeadline": boolean, "reminderLeadMinutes": number | null}`;
+{"isTask": boolean, "taskTitle": string, "deadline": string | null, "needsDeadline": boolean, "reminderLeadMinutes": number | null, "sentiment": "distress" | "toxic" | "frustrated" | "neutral" | "positive"}`;
 
   // 3. Tier 1: Try Gemini Structured Extraction if client is configured
   const gemini = options.geminiClient !== undefined ? options.geminiClient : getGeminiClient();
@@ -446,6 +475,29 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
         explicitLead = Math.min(Math.max(Math.round(parsed.reminderLeadMinutes), 1), 10080);
       }
 
+      const resolvedSentiment: SentimentResult = { ...sentiment };
+      if (parsed.sentiment === 'distress') {
+        resolvedSentiment.isDistress = true;
+        resolvedSentiment.tone = 'distress';
+      } else if (parsed.sentiment === 'toxic') {
+        resolvedSentiment.isToxicOnly = true;
+        resolvedSentiment.tone = 'toxic';
+      } else if (parsed.sentiment === 'frustrated') {
+        resolvedSentiment.isFrustrated = true;
+        resolvedSentiment.tone = 'frustrated';
+      }
+
+      if ((resolvedSentiment.isDistress || resolvedSentiment.isToxicOnly) && !isExplicitTodo && !options.isForwarded) {
+        return {
+          isTask: false,
+          taskTitle: '',
+          deadline: null,
+          needsDeadline: false,
+          rawText: text,
+          sentiment: resolvedSentiment,
+        };
+      }
+
       const cleanTitle = cleanProfanity(parsed.taskTitle || trimmed) || trimmed;
       return {
         isTask: Boolean(parsed.isTask),
@@ -454,7 +506,7 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
         needsDeadline: Boolean(parsed.needsDeadline),
         rawText: text,
         reminderLeadMinutes: explicitLead,
-        sentiment,
+        sentiment: resolvedSentiment,
       };
     } catch (err: any) {
       recordAiUsage(telemetry, {
@@ -488,6 +540,29 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
           explicitLead = Math.min(Math.max(Math.round(parsed.reminderLeadMinutes), 1), 10080);
         }
 
+        const resolvedSentiment: SentimentResult = { ...sentiment };
+        if (parsed.sentiment === 'distress') {
+          resolvedSentiment.isDistress = true;
+          resolvedSentiment.tone = 'distress';
+        } else if (parsed.sentiment === 'toxic') {
+          resolvedSentiment.isToxicOnly = true;
+          resolvedSentiment.tone = 'toxic';
+        } else if (parsed.sentiment === 'frustrated') {
+          resolvedSentiment.isFrustrated = true;
+          resolvedSentiment.tone = 'frustrated';
+        }
+
+        if ((resolvedSentiment.isDistress || resolvedSentiment.isToxicOnly) && !isExplicitTodo && !options.isForwarded) {
+          return {
+            isTask: false,
+            taskTitle: '',
+            deadline: null,
+            needsDeadline: false,
+            rawText: text,
+            sentiment: resolvedSentiment,
+          };
+        }
+
         const cleanTitle = cleanProfanity(parsed.taskTitle || trimmed) || trimmed;
         return {
           isTask: Boolean(parsed.isTask),
@@ -496,7 +571,7 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
           needsDeadline: Boolean(parsed.needsDeadline),
           rawText: text,
           reminderLeadMinutes: explicitLead,
-          sentiment,
+          sentiment: resolvedSentiment,
         };
       } catch (parseErr: any) {
         recordAiUsage(telemetry, {

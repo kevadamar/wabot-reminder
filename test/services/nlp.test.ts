@@ -187,5 +187,38 @@ describe('Seam 1: NLP Intent & Deadline Extraction', () => {
     expect(r3.taskTitle.toLowerCase()).not.toContain('anjing');
     expect(r3.taskTitle.toLowerCase()).not.toContain('tai');
     expect(r3.sentiment?.hasProfanity).toBe(true);
+
+    // 4. Broad Indonesian slang from sentiment-lexicon.json (jancuk, anjir, bgsd, ga sanggup lagi)
+    const r4 = await parseTaskMessage('jancuk bot sialan', { now: baseNow, geminiClient: null });
+    expect(r4.isTask).toBe(false);
+    expect(r4.sentiment?.isToxicOnly).toBe(true);
+
+    const r5 = await parseTaskMessage('ga sanggup lagi sumpah pengen nyerah', { now: baseNow, geminiClient: null });
+    expect(r5.isTask).toBe(false);
+    expect(r5.sentiment?.isDistress).toBe(true);
+
+    // 5. AI structured sentiment parsing (Gemini)
+    const mockGeminiWithSentiment = {
+      models: {
+        generateContent: async () => ({
+          text: JSON.stringify({
+            isTask: true,
+            taskTitle: 'Kirim revisi desain',
+            deadline: '2026-09-27T07:00:00.000Z',
+            needsDeadline: false,
+            reminderLeadMinutes: 15,
+            sentiment: 'frustrated',
+          }),
+        }),
+      },
+    };
+
+    const r6 = await parseTaskMessage('pusing banget besok jam 2 siang harus kirim revisi desain', {
+      now: baseNow,
+      geminiClient: mockGeminiWithSentiment as any,
+    });
+    expect(r6.isTask).toBe(true);
+    expect(r6.taskTitle).toBe('Kirim revisi desain');
+    expect(r6.sentiment?.tone).toBe('frustrated');
   });
 });
