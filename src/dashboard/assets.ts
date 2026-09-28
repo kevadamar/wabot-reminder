@@ -82,7 +82,7 @@ export const DASHBOARD_HTML = `<!doctype html>
         <button type="submit" id="add-user-btn">+ Tambah Whitelist</button>
       </form>
       <div id="user-feedback" class="user-feedback" hidden></div>
-      <div class="table-wrap" style="margin-top:1.25rem">
+      <div class="table-wrap mt-sm">
         <table>
           <thead>
             <tr>
@@ -91,7 +91,7 @@ export const DASHBOARD_HTML = `<!doctype html>
               <th scope="col">Pengaturan</th>
               <th scope="col">Tugas</th>
               <th scope="col">Terdaftar</th>
-              <th scope="col" style="text-align:right">Aksi</th>
+              <th scope="col" class="text-right">Aksi</th>
             </tr>
           </thead>
           <tbody id="users-table-body">
@@ -122,17 +122,17 @@ export const DASHBOARD_HTML = `<!doctype html>
         </div>
       </div>
 
-      <div class="table-wrap" style="margin-top:1.25rem">
+      <div class="table-wrap mt-sm">
         <table>
           <thead>
             <tr>
-              <th scope="col" style="width:4.5rem">ID</th>
+              <th scope="col" class="col-id">ID</th>
               <th scope="col">Tugas</th>
               <th scope="col">Pengguna</th>
               <th scope="col">Target Waktu (Deadline)</th>
               <th scope="col">Status</th>
               <th scope="col">Info</th>
-              <th scope="col" style="text-align:right">Aksi</th>
+              <th scope="col" class="text-right">Aksi</th>
             </tr>
           </thead>
           <tbody id="tasks-table-body">
@@ -149,7 +149,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       </div>
       <p class="section-desc">Pantau status engine scheduler, jadwal pengingat tugas (reminder) yang belum terkirim, serta jadwal morning digest. Anda dapat mematikan jadwal pengingat yang berpotensi spam atau heavy sebelum dieksekusi.</p>
 
-      <div class="split" style="margin-bottom:1.5rem">
+      <div class="split mb-md">
         <article>
           <div class="section-heading compact">
             <h3>Background Cron Dispatchers</h3>
@@ -169,7 +169,7 @@ export const DASHBOARD_HTML = `<!doctype html>
                 <tr>
                   <th scope="col">Pengguna</th>
                   <th scope="col">Jadwal Jam</th>
-                  <th scope="col" style="text-align:right">Aksi</th>
+                  <th scope="col" class="text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody id="cron-digests-body">
@@ -180,10 +180,10 @@ export const DASHBOARD_HTML = `<!doctype html>
         </article>
       </div>
 
-      <div class="section-heading compact" style="margin-top:1.5rem">
+      <div class="section-heading compact mt-md">
         <div>
           <h3>Antrean Pengingat Tugas yang Belum Berjalan (Upcoming Reminders)</h3>
-          <span id="upcoming-reminders-badge" class="pill-count" style="margin-left:0.5rem">0 PENDING</span>
+          <span id="upcoming-reminders-badge" class="pill-count ml-xs">0 PENDING</span>
         </div>
       </div>
       <p class="section-desc">Daftar pengingat tugas otomatis yang dijadwalkan dan belum terkirim ke WhatsApp. Klik tombol Matikan jika ingin mencegah pengiriman pengingat.</p>
@@ -192,13 +192,13 @@ export const DASHBOARD_HTML = `<!doctype html>
         <table>
           <thead>
             <tr>
-              <th scope="col" style="width:4.5rem">ID</th>
+              <th scope="col" class="col-id">ID</th>
               <th scope="col">Tugas</th>
               <th scope="col">Pengguna</th>
               <th scope="col">Jadwal Kirim Cron</th>
               <th scope="col">Deadline Tugas</th>
               <th scope="col">Status</th>
-              <th scope="col" style="text-align:right">Aksi</th>
+              <th scope="col" class="text-right">Aksi</th>
             </tr>
           </thead>
           <tbody id="cron-reminders-body">
@@ -211,7 +211,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     <dialog id="task-modal" class="task-modal">
       <div class="modal-header">
         <div>
-          <span id="modal-task-id" class="eyebrow" style="margin-bottom:0.25rem;display:block">TASK #—</span>
+          <span id="modal-task-id" class="eyebrow block-eyebrow">TASK #—</span>
           <h3 id="modal-task-title" class="modal-title">Judul Tugas</h3>
         </div>
         <button type="button" id="modal-close-btn" class="modal-close" aria-label="Tutup dialog">✕</button>
@@ -247,6 +247,7 @@ export const DASHBOARD_CSS = `
 .section-desc{color:var(--muted);font-size:.85rem;margin-bottom:1.25rem}.user-add-form{display:flex;flex-wrap:wrap;gap:1rem;align-items:center}.input-field{flex:1;min-width:200px}.input-field input{width:100%;padding:.65rem 1rem;background:var(--surface);border:1px solid var(--line);color:var(--text);font:inherit;font-size:.9rem}.input-field input:focus{outline:2px solid var(--accent);border-color:transparent}.user-feedback{padding:.75rem 1rem;margin-top:.75rem;border:1px solid var(--line);font-size:.85rem}.user-feedback.success{border-color:var(--accent);color:var(--accent);background:rgba(142,227,176,.08)}.user-feedback.error{border-color:var(--danger);color:var(--danger);background:rgba(255,139,132,.08)}.badge{display:inline-block;padding:.2rem .5rem;font:700 .7rem ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.05em}.badge-allowed{color:var(--accent);border:1px solid var(--accent);background:rgba(142,227,176,.1)}.badge-blocked{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.1)}.btn-sm{font:inherit;font-size:.78rem;font-weight:600;padding:.35rem .75rem;cursor:pointer;border:0}.btn-allow{background:var(--accent);color:var(--bg)}.btn-revoke{background:transparent;color:var(--warn);border:1px solid var(--warn)}.btn-revoke:hover{background:rgba(255,207,112,.1)}.btn-del{background:transparent;color:var(--danger);border:1px solid var(--danger);margin-left:.4rem}.btn-del:hover{background:rgba(255,139,132,.1)}.user-meta{display:flex;flex-direction:column;gap:.2rem}.user-phone{font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.user-name{font-size:.8rem;color:var(--muted)}
 .task-toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1rem}.task-filters{display:flex;flex-wrap:wrap;gap:.4rem}.filter-btn{font:inherit;font-size:.78rem;font-weight:600;background:var(--surface);color:var(--muted);border:1px solid var(--line);padding:.4rem .8rem;cursor:pointer}.filter-btn:hover{color:var(--text);border-color:var(--muted)}.filter-btn.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}.task-search{flex:1;min-width:220px;max-width:340px}.task-search input{width:100%;padding:.5rem .85rem;background:var(--surface);border:1px solid var(--line);color:var(--text);font:inherit;font-size:.85rem}.task-search input:focus{outline:2px solid var(--accent);border-color:transparent}.badge-pending{color:var(--warn);border:1px solid var(--warn);background:rgba(255,207,112,.1)}.badge-pending_deadline{color:#b3a0ff;border:1px solid #b3a0ff;background:rgba(179,160,255,.1)}.badge-resolved{color:var(--accent);border:1px solid var(--accent);background:rgba(142,227,176,.1)}.badge-cancelled{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.1)}.pill-count{display:inline-flex;align-items:center;gap:.25rem;font:600 .75rem ui-monospace,monospace;color:var(--muted);background:rgba(255,255,255,.05);padding:.15rem .45rem;margin-right:.3rem}.btn-detail{background:transparent;color:var(--accent);border:1px solid var(--accent);font-size:.78rem;font-weight:600;padding:.35rem .75rem;cursor:pointer}.btn-detail:hover{background:rgba(142,227,176,.15)}.subtask-label{font-size:.75rem;color:var(--muted);margin-top:.2rem;display:block}
 .task-modal{position:fixed;inset:0;margin:auto;max-width:760px;width:92%;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:1.5rem;box-shadow:0 20px 40px rgba(0,0,0,.6);z-index:100}.task-modal::backdrop{background:rgba(0,0,0,.75);backdrop-filter:blur(3px)}.modal-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;border-bottom:1px solid var(--line);padding-bottom:1rem}.modal-title{font-size:1.25rem;font-weight:650;line-height:1.3;margin:0}.modal-close{background:transparent;border:0;color:var(--muted);font-size:1.4rem;line-height:1;padding:.2rem .5rem;cursor:pointer}.modal-close:hover{color:var(--text)}.modal-body{max-height:calc(85vh - 5rem);overflow-y:auto;padding-top:1.25rem;display:flex;flex-direction:column;gap:1.5rem}.detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;background:rgba(0,0,0,.2);padding:1rem;border:1px solid var(--line)}.detail-grid dt{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}.detail-grid dd{margin:.25rem 0 0;font-size:.9rem;font-weight:500;word-break:break-word}.detail-card{border:1px solid var(--line);padding:1rem;background:rgba(0,0,0,.1)}.detail-card h4{margin:0 0 .75rem 0;font-size:.88rem;letter-spacing:.03em;color:var(--accent);text-transform:uppercase}.subtask-items{display:flex;flex-direction:column;gap:.5rem;margin:0;padding:0;list-style:none}.subtask-item{display:flex;justify-content:space-between;align-items:center;padding:.5rem .75rem;background:var(--bg);border:1px solid var(--line);font-size:.85rem}.attachment-card{border:1px solid var(--line);background:var(--bg);padding:.75rem;margin-bottom:.75rem}.attachment-header{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted);margin-bottom:.5rem}.attachment-name{font-weight:600;color:var(--text);font-family:ui-monospace,monospace}.ocr-box{background:var(--surface);border:1px solid var(--line);padding:.6rem .8rem;font-size:.78rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;color:#c0cdc5;max-height:160px;overflow-y:auto;margin-top:.5rem}.timeline{display:flex;flex-direction:column;gap:.8rem;border-left:2px solid var(--line);padding-left:1rem;margin-left:.5rem}.timeline-item{font-size:.8rem;position:relative}.timeline-item::before{content:"";position:absolute;left:-1.35rem;top:.35rem;width:8px;height:8px;border-radius:50%;background:var(--accent)}.timeline-time{color:var(--muted);font-family:ui-monospace,monospace;font-size:.72rem;margin-bottom:.2rem}.timeline-content{color:var(--text);line-height:1.4}.parent-pill{display:inline-block;padding:.4rem .75rem;background:rgba(142,227,176,.08);border:1px solid var(--line);font-size:.82rem}
+.mt-sm{margin-top:1.25rem}.mt-md{margin-top:1.5rem}.mb-md{margin-bottom:1.5rem}.ml-xs{margin-left:.5rem}.col-id{width:4.5rem}.text-right{text-align:right}.block-eyebrow{margin-bottom:.25rem;display:block}
 .cron-engine-cards{display:flex;flex-direction:column;gap:.75rem}.cron-card{border:1px solid var(--line);background:var(--surface);padding:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem}.cron-card-info{display:flex;flex-direction:column;gap:.25rem}.cron-card-title{font-weight:650;font-size:.9rem;display:flex;align-items:center;gap:.5rem}.cron-card-desc{font-size:.78rem;color:var(--muted)}.cron-card-meta{font-size:.75rem;color:var(--muted);font-family:ui-monospace,monospace}.confirm-modal{position:fixed;inset:0;margin:auto;max-width:480px;width:90%;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:1.5rem;box-shadow:0 24px 48px rgba(0,0,0,.7);z-index:200}.confirm-modal::backdrop{background:rgba(0,0,0,.8);backdrop-filter:blur(4px)}.confirm-content{display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem}.confirm-icon{font-size:2rem;line-height:1}.confirm-title{font-size:1.1rem;font-weight:650;margin:0 0 .4rem 0}.confirm-msg{font-size:.85rem;color:var(--muted);line-height:1.45;margin:0}.confirm-actions{display:flex;justify-content:flex-end;gap:.75rem}.btn-cancel{background:transparent;border:1px solid var(--line);color:var(--text);padding:.5rem 1rem;font-weight:600;cursor:pointer}.btn-cancel:hover{border-color:var(--muted)}.btn-confirm-danger{background:var(--danger);color:#08110b;border:0;padding:.5rem 1rem;font-weight:650;cursor:pointer}.btn-confirm-danger:hover{filter:brightness(1.1)}
 @media(max-width:800px){.topbar{align-items:flex-start;flex-direction:column}.topbar-actions{width:100%;justify-content:space-between}.metric-strip{grid-template-columns:1fr 1fr}.metric-strip>div{border-bottom:1px solid var(--line)}.split{grid-template-columns:1fr;gap:0}.event{grid-template-columns:1fr}.event span{overflow-wrap:anywhere}.user-add-form{flex-direction:column;align-items:stretch}.task-toolbar{flex-direction:column;align-items:stretch}.task-search{max-width:none}.cron-card{flex-direction:column;align-items:flex-start}}@media(max-width:420px){.metric-strip{grid-template-columns:1fr}.metric-strip>div{border-right:0}}
 `;
@@ -271,7 +272,7 @@ const tdStatus=document.createElement('td');const badge=document.createElement('
 const tdSettings=document.createElement('td');tdSettings.textContent=u.leadReminderMinutes+'m reminder · Pagi: '+(u.morningDigestEnabled?u.morningDigestTime:'off');
 const tdTasks=document.createElement('td');tdTasks.textContent=number(u.taskCount);
 const tdCreated=document.createElement('td');tdCreated.textContent=u.createdAt?new Date(u.createdAt).toLocaleDateString('id-ID'):'—';
-const tdAction=document.createElement('td');tdAction.style.textAlign='right';
+const tdAction=document.createElement('td');tdAction.className='text-right';
 const btnToggle=document.createElement('button');btnToggle.type='button';btnToggle.className='btn-sm '+(u.isAllowed?'btn-revoke':'btn-allow');btnToggle.textContent=u.isAllowed?'Cabut Akses':'Izinkan';btnToggle.onclick=async()=>{
   btnToggle.disabled=true;try{const res=await fetch('/api/users/toggle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userJid:u.userJid})});const data=await res.json();if(data.success){showUserFeedback('Status akses '+u.phoneNumber+' berhasil diperbarui.');await loadUsers();await loadSnapshot()}else{showUserFeedback(data.error||'Gagal update status',true)}}catch{showUserFeedback('Terjadi kesalahan jaringan',true)}finally{btnToggle.disabled=false}
 };
@@ -312,7 +313,7 @@ function renderTasks(taskList){
     if(t.subtaskCount>0){const pSub=document.createElement('span');pSub.className='pill-count';pSub.title=t.subtaskCount+' Sub-tugas';pSub.textContent='☑ '+t.subtaskCount;tdInfo.append(pSub)}
     if(t.attachmentCount>0){const pAtt=document.createElement('span');pAtt.className='pill-count';pAtt.title=t.attachmentCount+' Lampiran';pAtt.textContent='📎 '+t.attachmentCount;tdInfo.append(pAtt)}
     if(!t.subtaskCount&&!t.attachmentCount){tdInfo.textContent='—'}
-    const tdAction=document.createElement('td');tdAction.style.textAlign='right';
+    const tdAction=document.createElement('td');tdAction.className='text-right';
     const btnDetail=document.createElement('button');btnDetail.type='button';btnDetail.className='btn-detail';btnDetail.textContent='Detail';btnDetail.onclick=()=>openTaskDetail(t.id);
     tdAction.append(btnDetail);
     tr.append(tdId,tdTask,tdUser,tdDeadline,tdStatus,tdInfo,tdAction);tbody.append(tr)
@@ -386,7 +387,7 @@ async function openTaskDetail(taskId){
         const meta=document.createElement('span');meta.textContent=(a.fileType||a.mimeType||'')+' · '+bytes(a.fileSize)+' · '+(a.safetyStatus||'safe');
         head.append(name,meta);card.append(head);
         if(a.ocrExtractedText&&a.ocrExtractedText.trim()){
-          const ocrBox=document.createElement('div');ocrBox.className='ocr-box';ocrBox.textContent='Hasil OCR:\n'+a.ocrExtractedText;
+          const ocrBox=document.createElement('div');ocrBox.className='ocr-box';ocrBox.textContent='Hasil OCR:\\n'+a.ocrExtractedText;
           card.append(ocrBox);
         }
         sec.append(card);

@@ -15,7 +15,7 @@ import { DASHBOARD_CSS, DASHBOARD_HTML, DASHBOARD_JS } from './assets.js';
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
-  'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  'content-security-policy': "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
   'permissions-policy': 'camera=(), microphone=(), geolocation=()',
   'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff',
