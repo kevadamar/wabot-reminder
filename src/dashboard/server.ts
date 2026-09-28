@@ -8,6 +8,7 @@ import {
   userSettings,
 } from '../db/schema.js';
 import { runtimeHealth } from '../services/telemetry.js';
+import { config } from '../config/index.js';
 import { DASHBOARD_CSS, DASHBOARD_HTML, DASHBOARD_JS } from './assets.js';
 
 const SECURITY_HEADERS = {
@@ -126,10 +127,139 @@ export async function buildDashboardSnapshot(db: any) {
   };
 }
 
+export function normalizePhoneNumberToJid(phone: string): string | null {
+  if (!phone || typeof phone !== 'string') return null;
+  let clean = phone.trim().replace(/[^0-9]/g, '');
+  if (clean.startsWith('0')) {
+    clean = '62' + clean.slice(1);
+  }
+  if (clean.length < 9 || clean.length > 16) {
+    return null;
+  }
+  return `${clean}@s.whatsapp.net`;
+}
+
+export async function listDashboardUsers(db: any) {
+  if (!db) return [];
+  const rows = await db
+    .select({
+      userJid: userSettings.userJid,
+      name: userSettings.name,
+      timezone: userSettings.timezone,
+      leadReminderMinutes: userSettings.leadReminderMinutes,
+      isAllowed: userSettings.isAllowed,
+      morningDigestEnabled: userSettings.morningDigestEnabled,
+      morningDigestTime: userSettings.morningDigestTime,
+      imageQualityMode: userSettings.imageQualityMode,
+      createdAt: userSettings.createdAt,
+      updatedAt: userSettings.updatedAt,
+      taskCount: sql<number>`count(${tasks.id})::int`,
+    })
+    .from(userSettings)
+    .leftJoin(tasks, eq(tasks.userJid, userSettings.userJid))
+    .groupBy(userSettings.userJid)
+    .orderBy(desc(userSettings.updatedAt));
+
+  return rows.map((u: any) => ({
+    userJid: u.userJid,
+    phoneNumber: u.userJid.replace('@s.whatsapp.net', ''),
+    name: u.name ?? null,
+    timezone: u.timezone,
+    leadReminderMinutes: u.leadReminderMinutes,
+    isAllowed: Boolean(u.isAllowed),
+    morningDigestEnabled: Boolean(u.morningDigestEnabled),
+    morningDigestTime: u.morningDigestTime,
+    imageQualityMode: u.imageQualityMode,
+    createdAt: u.createdAt ? new Date(u.createdAt).toISOString() : null,
+    updatedAt: u.updatedAt ? new Date(u.updatedAt).toISOString() : null,
+    taskCount: Number(u.taskCount || 0),
+  }));
+}
+
+export async function toggleUserAllowed(db: any, userJid: string, isAllowed?: boolean) {
+  if (!db) throw new Error('Database not configured');
+  const existing = await db
+    .select()
+    .from(userSettings)
+    .where(eq(userSettings.userJid, userJid))
+    .limit(1);
+
+  if (!existing.length || !existing[0]) {
+    return null;
+  }
+
+  const nextAllowed = typeof isAllowed === 'boolean' ? isAllowed : !existing[0].isAllowed;
+  const updated = await db
+    .update(userSettings)
+    .set({
+      isAllowed: nextAllowed,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userJid, userJid))
+    .returning();
+
+  return updated[0] ? { ...updated[0], phoneNumber: userJid.replace('@s.whatsapp.net', '') } : null;
+}
+
+export async function addUserToWhitelist(db: any, phone: string, name?: string) {
+  if (!db) throw new Error('Database not configured');
+  const userJid = normalizePhoneNumberToJid(phone);
+  if (!userJid) {
+    throw new Error('Format nomor WhatsApp tidak valid. Gunakan format contoh: 08123456789 atau 628123456789');
+  }
+
+  const existing = await db
+    .select()
+    .from(userSettings)
+    .where(eq(userSettings.userJid, userJid))
+    .limit(1);
+
+  const cleanName = name?.trim() || null;
+
+  if (existing.length > 0 && existing[0]) {
+    const updated = await db
+      .update(userSettings)
+      .set({
+        isAllowed: true,
+        ...(cleanName ? { name: cleanName } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(userSettings.userJid, userJid))
+      .returning();
+
+    return { ...updated[0], phoneNumber: userJid.replace('@s.whatsapp.net', '') };
+  }
+
+  const inserted = await db
+    .insert(userSettings)
+    .values({
+      userJid,
+      name: cleanName,
+      isAllowed: true,
+      timezone: config.defaultTimezone,
+      leadReminderMinutes: config.defaultReminderLeadMinutes,
+    })
+    .returning();
+
+  return { ...inserted[0], phoneNumber: userJid.replace('@s.whatsapp.net', '') };
+}
+
+export async function deleteDashboardUser(db: any, userJid: string) {
+  if (!db) throw new Error('Database not configured');
+  await db.delete(tasks).where(eq(tasks.userJid, userJid));
+  const deleted = await db
+    .delete(userSettings)
+    .where(eq(userSettings.userJid, userJid))
+    .returning();
+
+  return deleted.length > 0;
+}
+
 export function createDashboardHandler(options: {
   username: string;
   password: string;
   snapshot: () => Promise<unknown>;
+  db?: any;
 }): (request: Request) => Promise<Response> {
   return async (request: Request) => {
     if (!isAuthorized(request, options.username, options.password)) {
@@ -137,33 +267,98 @@ export function createDashboardHandler(options: {
       headers.set('www-authenticate', 'Basic realm="Todo Bot Monitoring", charset="UTF-8"');
       return new Response('Authentication required', { status: 401, headers });
     }
-    if (request.method !== 'GET') {
-      const headers = secureHeaders('text/plain; charset=utf-8');
-      headers.set('allow', 'GET');
-      return new Response('Method not allowed', { status: 405, headers });
-    }
 
     const pathname = new URL(request.url).pathname;
-    if (pathname === '/') {
-      return new Response(DASHBOARD_HTML, { headers: secureHeaders('text/html; charset=utf-8') });
-    }
-    if (pathname === '/dashboard.css') {
-      return new Response(DASHBOARD_CSS, { headers: secureHeaders('text/css; charset=utf-8') });
-    }
-    if (pathname === '/dashboard.js') {
-      return new Response(DASHBOARD_JS, { headers: secureHeaders('text/javascript; charset=utf-8') });
-    }
-    if (pathname === '/api/snapshot') {
-      try {
-        return Response.json(await options.snapshot(), { headers: secureHeaders('application/json; charset=utf-8') });
-      } catch {
-        return Response.json(
-          { error: 'DASHBOARD_SNAPSHOT_UNAVAILABLE' },
-          { status: 503, headers: secureHeaders('application/json; charset=utf-8') }
-        );
+
+    if (request.method === 'GET') {
+      if (pathname === '/') {
+        return new Response(DASHBOARD_HTML, { headers: secureHeaders('text/html; charset=utf-8') });
       }
+      if (pathname === '/dashboard.css') {
+        return new Response(DASHBOARD_CSS, { headers: secureHeaders('text/css; charset=utf-8') });
+      }
+      if (pathname === '/dashboard.js') {
+        return new Response(DASHBOARD_JS, { headers: secureHeaders('text/javascript; charset=utf-8') });
+      }
+      if (pathname === '/api/snapshot') {
+        try {
+          return Response.json(await options.snapshot(), { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch {
+          return Response.json(
+            { error: 'DASHBOARD_SNAPSHOT_UNAVAILABLE' },
+            { status: 503, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
+      }
+      if (pathname === '/api/users') {
+        try {
+          const users = await listDashboardUsers(options.db);
+          return Response.json(users, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_LIST_USERS' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
+      }
+      return new Response('Not found', { status: 404, headers: secureHeaders('text/plain; charset=utf-8') });
     }
-    return new Response('Not found', { status: 404, headers: secureHeaders('text/plain; charset=utf-8') });
+
+    if (request.method === 'POST') {
+      if (pathname === '/api/users/toggle') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (!body?.userJid) {
+            return Response.json({ error: 'MISSING_USER_JID' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const result = await toggleUserAllowed(options.db, body.userJid, body.isAllowed);
+          if (!result) {
+            return Response.json({ error: 'USER_NOT_FOUND' }, { status: 404, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          return Response.json({ success: true, user: result }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json({ error: err?.message || 'FAILED_TO_TOGGLE_USER' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
+      if (pathname === '/api/users/add') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (!body?.phone) {
+            return Response.json({ error: 'MISSING_PHONE_NUMBER' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const user = await addUserToWhitelist(options.db, body.phone, body.name);
+          return Response.json({ success: true, user }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json({ error: err?.message || 'FAILED_TO_ADD_USER' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
+      if (pathname === '/api/users/delete') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (!body?.userJid) {
+            return Response.json({ error: 'MISSING_USER_JID' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const success = await deleteDashboardUser(options.db, body.userJid);
+          return Response.json({ success }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json({ error: err?.message || 'FAILED_TO_DELETE_USER' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
+      if (pathname === '/api/snapshot') {
+        const headers = secureHeaders('text/plain; charset=utf-8');
+        headers.set('allow', 'GET');
+        return new Response('Method not allowed', { status: 405, headers });
+      }
+
+      return new Response('Not found', { status: 404, headers: secureHeaders('text/plain; charset=utf-8') });
+    }
+
+    const headers = secureHeaders('text/plain; charset=utf-8');
+    headers.set('allow', 'GET, POST');
+    return new Response('Method not allowed', { status: 405, headers });
   };
 }
 
@@ -183,6 +378,7 @@ export function startDashboardServer(options: {
     username: options.username,
     password: options.password,
     snapshot: () => buildDashboardSnapshot(options.db),
+    db: options.db,
   });
   return Bun.serve({ hostname: options.host, port: options.port, fetch: handler });
 }

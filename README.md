@@ -217,11 +217,11 @@ DATABASE_URL=postgres://user:password@host:5432/todo_bot
 GEMINI_API_KEY=your_gemini_api_key
 OWNER_NUMBER=628123456789
 TIMEZONE=Asia/Jakarta
-DEFAULT_REMINDER_LEAD_MINUTES=30
+DEFAULT_REMINDER_LEAD_MINUTES=10
 
-# Dashboard monitoring read-only (opsional)
-DASHBOARD_ENABLED=false
-DASHBOARD_HOST=127.0.0.1
+# Dashboard monitoring & whitelist manager (opsional)
+DASHBOARD_ENABLED=true
+DASHBOARD_HOST=0.0.0.0
 DASHBOARD_PORT=3080
 DASHBOARD_USERNAME=admin
 DASHBOARD_PASSWORD=replace-with-a-random-password-at-least-16-chars
