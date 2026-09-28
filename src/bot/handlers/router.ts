@@ -21,7 +21,7 @@ import {
   updateUserName,
   updateLeadReminderMinutes,
 } from '../../services/task.js';
-import { parseTaskMessage, parseLocalTask } from '../../services/nlp.js';
+import { parseTaskMessage, parseLocalTask, detectSentiment } from '../../services/nlp.js';
 import { calculateRemindAt } from '../../services/reminder.js';
 import { generateAffirmation } from '../../services/affirmation.js';
 import {
@@ -58,7 +58,8 @@ export const TASK_FOOTER_NOTE = `\n\n💡 _Tips: Ingin ubah jadwal, judul, atau 
 const HELP_MESSAGE = `Halo! 👋 Aku asisten pengingat tugasmu. Kamu bisa santai ngobrol atau gunakan panduan ringkas ini:
 
 📌 *Mencatat Tugas Baru:*
-• Ketik langsung tugasmu: _"Besok jam 2 siang meeting dengan klien"_
+• Ketik langsung tugasmu: _"Besok jam 8 pagi ke kantor, ingatkan 10 menit sebelumnya"_
+• Fleksibel atur pengingat per-tugas: _"ingatkan 30 menit sebelum"_, _"ingatkan 1 jam sebelumnya"_, atau _"ingatkan H-1"_
 • Atau kirim *foto / dokumen (PDF)* dengan caption tugas!
 • Atau *teruskan (forward)* pesan penting ke sini.
 
@@ -93,7 +94,8 @@ Balas langsung ke pesan tugas yang ingin diubah:
 • */username* : Cek nama panggilan saat ini
 
 ⏱️ *Waktu Pengingat (Lead Time):*
-• */setting reminder <menit>* : Atur waktu pengingat awal (cth: _/setting reminder 10_)
+• Bisa langsung ditentukan per tugas di dalam pesan (cth: _"ingatkan 15 menit sebelum"_)
+• */setting reminder <menit>* : Atur waktu pengingat awal default (cth: _/setting reminder 10_)
 • */setting reminder* : Cek waktu pengingat saat ini
 
 ✅ *Menyelesaikan Tugas:*
@@ -879,6 +881,13 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
         return;
       }
 
+      if (newDeadline.getTime() <= Date.now()) {
+        await sock.sendMessage(remoteJid, {
+          text: `⚠️ Waktu baru (*${formatDateTime(newDeadline, user.timezone)}*) sudah lewat dari jam sekarang nih! 😅 Coba masukkan waktu yang akan datang ya.`,
+        });
+        return;
+      }
+
       const res = await rescheduleTask(db, {
         taskId: targetTask.id,
         userJid: remoteJid,
@@ -1118,6 +1127,24 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   }
 
   // 13. Natural Language Ingestion for new task
+  const isExplicitTodo = /^\/todo\b|^todo:/i.test(trimmedText);
+  const sentiment = detectSentiment(trimmedText);
+  if (sentiment.isDistress && !isExplicitTodo && !isForwarded) {
+    console.log('🫂 [Sentiment] Pengguna mengekspresikan kepenatan/distress, membalas dengan hangat.');
+    await sock.sendMessage(remoteJid, {
+      text: `Duh, peluk jauh dulu ya... 🫂 Tarik napas pelan-pelan.\n\nHidup atau kerjaan emang kadang bikin kewalahan banget, tapi kamu berharga dan pasti bisa lewatin ini semua. Istirahat sejenak, minum air hangat dulu yuk. Nanti kalau ada to-do list atau tugas kecil yang mau dicicil, kasih tahu aku ya biar aku bantu ingetin satu-satu. Tetap semangat, you're not alone! 💪✨`,
+    });
+    return;
+  }
+
+  if (sentiment.isToxicOnly && !isExplicitTodo && !isForwarded) {
+    console.log('🧘‍♂️ [Sentiment] Pesan makian/toxic tanpa tugas, membalas santai dan ramah.');
+    await sock.sendMessage(remoteJid, {
+      text: `Waduh santai dulu brad/kak! 🧘‍♂️ Tarik napas dalam-dalam, jangan emosi gitu dong nanti cepat tua lho! 😜\n\nKalau ada deadline atau to-do list yang bikin pusing, sini tumpahin ke aku biar aku rapikan jadwalnya dan ingetin tepat waktu. Ada tugas apa nih yang mau dicatat? 📝`,
+    });
+    return;
+  }
+
   const nlpResult = await parseTaskMessage(trimmedText, {
     now: new Date(),
     timezone: user.timezone,
@@ -1131,6 +1158,16 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
         text: `Halo! 👋 Aku asisten pengingat tugasmu.\n\nAda tugas yang ingin dicatat hari ini? Kamu bisa ketik langsung (contoh: _"Besok jam 2 siang rapat tim"_), atau ketik *help* untuk melihat panduan ya! ✨`,
       });
     }
+    return;
+  }
+
+  // Check if deadline is specified but already in the past
+  const now = new Date();
+  if (nlpResult.deadline && nlpResult.deadline.getTime() <= now.getTime()) {
+    const deadlineStr = formatDateTime(nlpResult.deadline, user.timezone);
+    await sock.sendMessage(remoteJid, {
+      text: `⚠️ Waktu yang kamu sebutkan (*${deadlineStr}*) sepertinya sudah lewat dari jam sekarang nih! 😅\n\nMau aku jadwalkan ke kapan? Coba kirim ulang dengan waktu yang akan datang ya (contoh: *besok jam 10 pagi* atau *1 jam lagi*). ✨`,
+    });
     return;
   }
 
@@ -1161,6 +1198,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
   const remindAt = calculateRemindAt(nlpResult.deadline, {
     leadMinutes: effectiveLeadMinutes,
+    now,
   });
 
   const created = await createTask(db, {
@@ -1174,15 +1212,28 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   const deadlineStr = formatDateTime(nlpResult.deadline, user.timezone);
   let reminderNote = '';
   if (nlpResult.reminderLeadMinutes && nlpResult.reminderLeadMinutes > 0) {
-    const leadTxt = nlpResult.reminderLeadMinutes >= 60 && nlpResult.reminderLeadMinutes % 60 === 0
+    const leadTxt = nlpResult.reminderLeadMinutes >= 1440 && nlpResult.reminderLeadMinutes % 1440 === 0
+      ? `${nlpResult.reminderLeadMinutes / 1440} hari`
+      : nlpResult.reminderLeadMinutes >= 60 && nlpResult.reminderLeadMinutes % 60 === 0
       ? `${nlpResult.reminderLeadMinutes / 60} jam`
       : `${nlpResult.reminderLeadMinutes} menit`;
-    const remindStr = remindAt ? formatDateTime(remindAt, user.timezone) : '';
-    reminderNote = `\n⏱️ Pengingat Khusus: *${leadTxt} sebelum deadline* (${remindStr})`;
+
+    // Check if the requested lead time overlaps with now or falls in the past
+    const isLeadInPast = nlpResult.deadline.getTime() - nlpResult.reminderLeadMinutes * 60 * 1000 <= now.getTime();
+    if (isLeadInPast) {
+      reminderNote = `\n⏱️ Catatan Pengingat: Karena waktu pengingat yang diminta (*${leadTxt} sebelumnya*) sudah terlewat dari jam sekarang, alarmnya aku pasang pas tepat waktu deadline ya! 😉 (${formatDateTime(remindAt, user.timezone)})`;
+    } else {
+      reminderNote = `\n⏱️ Pengingat Khusus: *${leadTxt} sebelum deadline* (${formatDateTime(remindAt, user.timezone)})`;
+    }
+  }
+
+  let cleanNote = '';
+  if (nlpResult.sentiment?.hasProfanity) {
+    cleanNote = '\n\n_(Tugasnya udah aku catat rapi ya, kata-kata kasarnya udah aku bersihin biar tetep adem dibaca haha 🧘‍♂️ Tetap semangat beresinnya! 💪)_';
   }
 
   const reply = await sock.sendMessage(remoteJid, {
-    text: `✅ *Tugas Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*${reminderNote}\n\nAku akan ingatkan mendekati waktu tersebut. Semangat!${TASK_FOOTER_NOTE}`,
+    text: `✅ *Tugas Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*${reminderNote}${cleanNote}\n\nAku akan ingatkan mendekati waktu tersebut. Semangat!${TASK_FOOTER_NOTE}`,
   });
 
   if (reply?.key?.id) {

@@ -165,4 +165,27 @@ describe('Seam 1: NLP Intent & Deadline Extraction', () => {
     expect(r4.isTask).toBe(true);
     expect(r4.reminderLeadMinutes).toBeNull();
   });
+
+  it('should detect sentiment, screen toxicity, and clean profanity from task titles', async () => {
+    // 1. Pure toxic insult
+    const r1 = await parseTaskMessage('bot anjing goblok lu', { now: baseNow, geminiClient: null });
+    expect(r1.isTask).toBe(false);
+    expect(r1.sentiment?.isToxicOnly).toBe(true);
+
+    // 2. Pure distress / burnout
+    const r2 = await parseTaskMessage('capek hidup mau mati aja pusing', { now: baseNow, geminiClient: null });
+    expect(r2.isTask).toBe(false);
+    expect(r2.sentiment?.isDistress).toBe(true);
+
+    // 3. Real task with swearing: should clean profanity and preserve task
+    const r3 = await parseTaskMessage('anjing besok jam 14:00 harus kumpul laporan tai', {
+      now: baseNow,
+      geminiClient: null,
+    });
+    expect(r3.isTask).toBe(true);
+    expect(r3.taskTitle.toLowerCase()).toContain('kumpul laporan');
+    expect(r3.taskTitle.toLowerCase()).not.toContain('anjing');
+    expect(r3.taskTitle.toLowerCase()).not.toContain('tai');
+    expect(r3.sentiment?.hasProfanity).toBe(true);
+  });
 });

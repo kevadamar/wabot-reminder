@@ -704,4 +704,88 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(sentMessages.length).toBe(1);
     expect(sentMessages[0]).toContain('harus berupa angka menit antara 1 sampai 1440');
   });
+
+  it('should reply with warm empathy when user expresses distress/burnout', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_DISTRESS' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_DISTRESS' },
+      message: { conversation: 'capek banget pengen nyerah rasanya mau mati' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('peluk jauh');
+    expect(sentMessages[0]).toContain('kamu berharga');
+  });
+
+  it('should reply playfully to de-escalate toxic swearing without task', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_TOXIC' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_TOXIC' },
+      message: { conversation: 'bot anjing goblok' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('santai dulu');
+  });
+
+  it('should notify friendly when task deadline is in the past', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_PAST' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_PAST' },
+      message: { conversation: 'Kemarin jam 10 pagi meeting vendor' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('sudah lewat dari jam sekarang');
+  });
+
+  it('should adjust and notify playfully when requested reminder lead time overlaps into the past', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_OVERLAP' } };
+      },
+    };
+
+    // Task is 5 minutes from now, but user asks for 30 minutes lead reminder
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_OVERLAP' },
+      message: { conversation: '5 menit lagi meeting darurat, ingatkan 30 menit sebelumnya' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Tugas Dicatat');
+    expect(sentMessages[0]).toContain('Catatan Pengingat');
+    expect(sentMessages[0]).toContain('alarmnya aku pasang pas tepat waktu deadline ya');
+  });
 });

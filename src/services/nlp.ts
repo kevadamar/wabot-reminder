@@ -3,6 +3,12 @@ import { GoogleGenAI } from '@google/genai';
 import { config } from '../config/index.js';
 import { recordAiUsage, telemetry } from './telemetry.js';
 
+export interface SentimentResult {
+  hasProfanity: boolean;
+  isDistress: boolean;
+  isToxicOnly: boolean;
+}
+
 export interface ParseResult {
   isTask: boolean;
   taskTitle: string;
@@ -10,6 +16,7 @@ export interface ParseResult {
   needsDeadline: boolean;
   rawText: string;
   reminderLeadMinutes?: number | null;
+  sentiment?: SentimentResult;
 }
 
 export interface ParseOptions {
@@ -19,9 +26,46 @@ export interface ParseOptions {
   geminiClient?: any;
 }
 
-const GREETINGS_REGEX = /^(halo|hai|hey|p|ping|assalamualaikum|tes|test|pagi|siang|sore|malam|selamat pagi|selamat siang|selamat sore|selamat malam|makasih|terima kasih|thanks|thank you|ok|oke|siap|baik)\b/i;
+export const GREETINGS_REGEX = /^(halo|hai|hey|p|ping|assalamualaikum|tes|test|pagi|siang|sore|malam|selamat pagi|selamat siang|selamat sore|selamat malam|makasih|terima kasih|thanks|thank you|ok|oke|siap|baik)\b/i;
 
-const TASK_VERBS_REGEX = /\b(beli|bayar|kirim|kerjakan|rapat|meeting|telpon|telepon|hubungi|call|transfer|catat|ingat|ingatkan|bikin|buat|periksa|cek|bereskan|beresin|ambil|jemput|selesaikan|baca|tulis|submit|upload|download|presentasi|facial|service|servis|olahraga|gym|lari|belanja|jadwal)\b/i;
+export const TASK_VERBS_REGEX = /\b(beli|bayar|kirim|kerjakan|rapat|meeting|telpon|telepon|hubungi|call|transfer|catat|ingat|ingatkan|bikin|buat|periksa|cek|bereskan|beresin|ambil|jemput|selesaikan|baca|tulis|submit|upload|download|presentasi|facial|service|servis|olahraga|gym|lari|belanja|jadwal)\b/i;
+
+export const PROFANITY_REGEX = /\b(anjing|babi|bangsat|kontol|memek|jembut|tai|taek|taik|asu|pantek|goblok|tolol|bego|idiot|bajingan|kampret|brengsek)\b/gi;
+
+export const DISTRESS_REGEX = /\b(mau mati|pengen mati|capek hidup|pengen nyerah|gamau hidup|bunuh diri|stres berat|stress berat|depresi berat)\b/i;
+
+/**
+ * Detects whether a message contains profanity/swearing, extreme distress/burnout,
+ * or is solely abusive without any task intent.
+ */
+export function detectSentiment(text: string): SentimentResult {
+  PROFANITY_REGEX.lastIndex = 0;
+  const hasProfanity = PROFANITY_REGEX.test(text);
+  PROFANITY_REGEX.lastIndex = 0;
+  const isDistress = DISTRESS_REGEX.test(text);
+
+  const hasTaskVerb = TASK_VERBS_REGEX.test(text);
+  const hasTimeKeyword = /\b(besok|nanti|jam\s*\d|pukul|deadline|hari ini|minggu depan|lusa)\b/i.test(text);
+  const isToxicOnly = hasProfanity && !hasTaskVerb && !hasTimeKeyword && !isDistress;
+
+  return {
+    hasProfanity,
+    isDistress,
+    isToxicOnly,
+  };
+}
+
+/**
+ * Cleans profanity and offensive words from task titles.
+ */
+export function cleanProfanity(text: string): string {
+  PROFANITY_REGEX.lastIndex = 0;
+  return text
+    .replace(PROFANITY_REGEX, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[-:., ]+|[-:., ]+$/g, '')
+    .trim();
+}
 
 /**
  * Returns timezone offset in minutes for a given timezone name (e.g. Asia/Jakarta -> 420).
@@ -228,25 +272,29 @@ export function parseLocalTask(text: string, now: Date = new Date(), timezone = 
     taskTitle = taskTitle.replace(/\b(pada|di|untuk|tgl|tanggal)\b/gi, '');
 
     // Clean extra punctuation, leading dots, commas, colons, and extra whitespace
-    taskTitle = taskTitle.replace(/^[-:., ]+|[-:., ]+$/g, '').replace(/\s+/g, ' ').trim();
+    taskTitle = cleanProfanity(taskTitle.replace(/^[-:., ]+|[-:., ]+$/g, '').replace(/\s+/g, ' ').trim());
+    const sentiment = detectSentiment(trimmed);
 
     return {
       isTask: true,
-      taskTitle: taskTitle || cleanInput,
+      taskTitle: taskTitle || cleanProfanity(cleanInput) || cleanInput,
       deadline,
       needsDeadline: false,
       rawText: text,
       reminderLeadMinutes: explicitLeadMinutes,
+      sentiment,
     };
   }
 
+  const sentiment = detectSentiment(trimmed);
   return {
     isTask: true,
-    taskTitle: cleanInput,
+    taskTitle: cleanProfanity(cleanInput) || cleanInput,
     deadline: null,
     needsDeadline: true,
     rawText: text,
     reminderLeadMinutes: explicitLeadMinutes,
+    sentiment,
   };
 }
 
@@ -298,8 +346,20 @@ export async function parseTaskMessage(text: string, options: ParseOptions = {})
   // 1. Explicit /todo command always counts as a task
   const isExplicitTodo = /^\/todo\b|^todo:/i.test(trimmed);
 
-  // 2. Check for casual chat / greetings
+  // 2. Check for casual chat / greetings / sentiment
+  const sentiment = detectSentiment(trimmed);
   if (!isExplicitTodo && !options.isForwarded) {
+    if (sentiment.isDistress || sentiment.isToxicOnly) {
+      return {
+        isTask: false,
+        taskTitle: '',
+        deadline: null,
+        needsDeadline: false,
+        rawText: text,
+        sentiment,
+      };
+    }
+
     if (GREETINGS_REGEX.test(trimmed) && trimmed.split(/\s+/).length <= 4) {
       return {
         isTask: false,
@@ -307,6 +367,7 @@ export async function parseTaskMessage(text: string, options: ParseOptions = {})
         deadline: null,
         needsDeadline: false,
         rawText: text,
+        sentiment,
       };
     }
 
@@ -321,6 +382,7 @@ export async function parseTaskMessage(text: string, options: ParseOptions = {})
         deadline: null,
         needsDeadline: false,
         rawText: text,
+        sentiment,
       };
     }
   }
@@ -331,7 +393,7 @@ Analisis pesan berikut: "${trimmed}"
 
 Instruksi:
 1. Tentukan apakah pesan ini adalah sebuah tugas (isTask: true/false).
-2. Bersihkan judul tugas dari kata penunjuk waktu serta frasa permintaan pengingat (taskTitle).
+2. Bersihkan judul tugas dari kata penunjuk waktu, frasa permintaan pengingat, dan kata makian/umpatan jika ada (taskTitle).
 3. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z").
 4. ATURAN WAJIB: Jika pengguna TIDAK menyebutkan keterangan tanggal, hari, jam, atau waktu sama sekali, JANGAN PERNAH berasumsi, menebak, atau menentukan sendiri batas waktunya! Isi deadline: null dan needsDeadline: true.
 5. Jika pengguna secara eksplisit meminta waktu pengingat awal (contoh: "ingatkan 30 menit sebelumnya", "ingatkan 1 jam sebelum", "remind me 15 mins before", "ingatkan H-1"), hitung dan ekstrak durasinya dalam satuan menit integer (contoh: 30, 60, 120, 1440) ke field reminderLeadMinutes. Jika pengguna TIDAK meminta waktu pengingat khusus, isi reminderLeadMinutes: null.
@@ -384,13 +446,15 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
         explicitLead = Math.min(Math.max(Math.round(parsed.reminderLeadMinutes), 1), 10080);
       }
 
+      const cleanTitle = cleanProfanity(parsed.taskTitle || trimmed) || trimmed;
       return {
         isTask: Boolean(parsed.isTask),
-        taskTitle: parsed.taskTitle || trimmed,
+        taskTitle: cleanTitle,
         deadline: parsed.deadline ? new Date(parsed.deadline) : null,
         needsDeadline: Boolean(parsed.needsDeadline),
         rawText: text,
         reminderLeadMinutes: explicitLead,
+        sentiment,
       };
     } catch (err: any) {
       recordAiUsage(telemetry, {
@@ -424,13 +488,15 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
           explicitLead = Math.min(Math.max(Math.round(parsed.reminderLeadMinutes), 1), 10080);
         }
 
+        const cleanTitle = cleanProfanity(parsed.taskTitle || trimmed) || trimmed;
         return {
           isTask: Boolean(parsed.isTask),
-          taskTitle: parsed.taskTitle || trimmed,
+          taskTitle: cleanTitle,
           deadline: parsed.deadline ? new Date(parsed.deadline) : null,
           needsDeadline: Boolean(parsed.needsDeadline),
           rawText: text,
           reminderLeadMinutes: explicitLead,
+          sentiment,
         };
       } catch (parseErr: any) {
         recordAiUsage(telemetry, {
