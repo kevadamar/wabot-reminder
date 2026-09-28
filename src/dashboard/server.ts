@@ -10,6 +10,7 @@ import {
   userSettings,
 } from '../db/schema.js';
 import { runtimeHealth } from '../services/telemetry.js';
+import { rescheduleTask } from '../services/task.js';
 import { config } from '../config/index.js';
 import { DASHBOARD_CSS, DASHBOARD_HTML, DASHBOARD_JS } from './assets.js';
 
@@ -498,6 +499,23 @@ export async function getDashboardTaskDetail(db: any, taskId: number) {
   };
 }
 
+export async function rescheduleDashboardTask(
+  db: any,
+  params: { taskId: number; newDeadline: Date; leadMinutes?: number }
+) {
+  if (!db) throw new Error('Database not configured');
+  const existing = await db.select().from(tasks).where(eq(tasks.id, params.taskId)).limit(1);
+  if (!existing || !existing[0]) return null;
+  const task = existing[0];
+  return rescheduleTask(db, {
+    taskId: params.taskId,
+    userJid: task.userJid,
+    newDeadline: params.newDeadline,
+    leadMinutes: params.leadMinutes,
+    rawInput: 'Dashboard Admin Reschedule',
+  });
+}
+
 export async function listScheduledCrons(db: any) {
   const engine = [
     {
@@ -788,6 +806,31 @@ export function createDashboardHandler(options: {
           return Response.json({ success: true, task: result }, { headers: secureHeaders('application/json; charset=utf-8') });
         } catch (err: any) {
           return Response.json({ error: err?.message || 'FAILED_TO_DISABLE_TASK_REMINDER' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
+      if (pathname === '/api/tasks/reschedule') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          const taskId = Number(body?.taskId);
+          if (!taskId || taskId <= 0) {
+            return Response.json({ error: 'INVALID_TASK_ID' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          if (!body?.newDeadline) {
+            return Response.json({ error: 'MISSING_NEW_DEADLINE' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const newDeadline = new Date(body.newDeadline);
+          if (isNaN(newDeadline.getTime())) {
+            return Response.json({ error: 'INVALID_NEW_DEADLINE' }, { status: 400, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          const leadMinutes = typeof body?.leadMinutes === 'number' && body.leadMinutes > 0 ? body.leadMinutes : undefined;
+          const result = await rescheduleDashboardTask(options.db, { taskId, newDeadline, leadMinutes });
+          if (!result) {
+            return Response.json({ error: 'TASK_NOT_FOUND' }, { status: 404, headers: secureHeaders('application/json; charset=utf-8') });
+          }
+          return Response.json({ success: true, updatedTask: result.updatedTask }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json({ error: err?.message || 'FAILED_TO_RESCHEDULE_TASK' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
         }
       }
 

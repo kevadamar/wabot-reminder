@@ -343,6 +343,24 @@ describe('Monitoring dashboard HTTP boundary & user whitelist management', () =>
     // TEST: Non-existent task ID
     const notFoundRes = await handler(new Request('http://localhost/api/tasks/detail?id=999999', { headers: authHeaders }));
     expect(notFoundRes.status).toBe(404);
+
+    // TEST: POST /api/tasks/reschedule from dashboard
+    const newDeadline = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
+    const reschedRes = await handler(
+      new Request('http://localhost/api/tasks/reschedule', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          taskId: parentTask!.id,
+          newDeadline,
+          leadMinutes: 15,
+        }),
+      })
+    );
+    expect(reschedRes.status).toBe(200);
+    const reschedData = (await reschedRes.json()) as any;
+    expect(reschedData.success).toBe(true);
+    expect(new Date(reschedData.updatedTask.deadline).toISOString()).toBe(newDeadline);
   });
 
   it('monitors cron jobs and allows pausing dispatcher, disabling task reminders, and toggling digests', async () => {

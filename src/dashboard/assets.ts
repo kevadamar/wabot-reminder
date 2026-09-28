@@ -257,6 +257,7 @@ export const DASHBOARD_CSS = `
 .task-modal{position:fixed;inset:0;margin:auto;max-width:760px;width:92%;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:1.5rem;box-shadow:0 20px 40px rgba(0,0,0,.6);z-index:100}.task-modal::backdrop{background:rgba(0,0,0,.75);backdrop-filter:blur(3px)}.modal-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;border-bottom:1px solid var(--line);padding-bottom:1rem}.modal-title{font-size:1.25rem;font-weight:650;line-height:1.3;margin:0}.modal-close{background:transparent;border:0;color:var(--muted);font-size:1.4rem;line-height:1;padding:.2rem .5rem;cursor:pointer}.modal-close:hover{color:var(--text)}.modal-body{max-height:calc(85vh - 5rem);overflow-y:auto;padding-top:1.25rem;display:flex;flex-direction:column;gap:1.5rem}.detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;background:rgba(0,0,0,.2);padding:1rem;border:1px solid var(--line)}.detail-grid dt{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}.detail-grid dd{margin:.25rem 0 0;font-size:.9rem;font-weight:500;word-break:break-word}.detail-card{border:1px solid var(--line);padding:1rem;background:rgba(0,0,0,.1)}.detail-card h4{margin:0 0 .75rem 0;font-size:.88rem;letter-spacing:.03em;color:var(--accent);text-transform:uppercase}.subtask-items{display:flex;flex-direction:column;gap:.5rem;margin:0;padding:0;list-style:none}.subtask-item{display:flex;justify-content:space-between;align-items:center;padding:.5rem .75rem;background:var(--bg);border:1px solid var(--line);font-size:.85rem}.attachment-card{border:1px solid var(--line);background:var(--bg);padding:.75rem;margin-bottom:.75rem}.attachment-header{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted);margin-bottom:.5rem}.attachment-name{font-weight:600;color:var(--text);font-family:ui-monospace,monospace}.ocr-box{background:var(--surface);border:1px solid var(--line);padding:.6rem .8rem;font-size:.78rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;color:#c0cdc5;max-height:160px;overflow-y:auto;margin-top:.5rem}.timeline{display:flex;flex-direction:column;gap:.8rem;border-left:2px solid var(--line);padding-left:1rem;margin-left:.5rem}.timeline-item{font-size:.8rem;position:relative}.timeline-item::before{content:"";position:absolute;left:-1.35rem;top:.35rem;width:8px;height:8px;border-radius:50%;background:var(--accent)}.timeline-time{color:var(--muted);font-family:ui-monospace,monospace;font-size:.72rem;margin-bottom:.2rem}.timeline-content{color:var(--text);line-height:1.4}.parent-pill{display:inline-block;padding:.4rem .75rem;background:rgba(142,227,176,.08);border:1px solid var(--line);font-size:.82rem}
 .mt-sm{margin-top:1.25rem}.mt-md{margin-top:1.5rem}.mb-md{margin-bottom:1.5rem}.ml-xs{margin-left:.5rem}.col-id{width:4.5rem}.text-right{text-align:right}.block-eyebrow{margin-bottom:.25rem;display:block}
 .pagination-bar{display:flex;justify-content:space-between;align-items:center;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--line);flex-wrap:wrap;gap:.75rem}.pagination-info{font-size:.82rem;color:var(--muted);font-family:ui-monospace,monospace}.pagination-buttons{display:flex;gap:.5rem}.btn-page{background:var(--surface);border:1px solid var(--line);color:var(--text);padding:.35rem .75rem;font-size:.8rem;font-weight:600;cursor:pointer}.btn-page:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}.btn-page:disabled{opacity:.4;cursor:not-allowed}
+.schedule-form{display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;margin-top:.5rem}.form-group{display:flex;flex-direction:column;gap:.3rem;flex:1;min-width:180px}.form-group label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.input-text{background:var(--bg);border:1px solid var(--line);color:var(--text);padding:.45rem .65rem;font:inherit;font-size:.85rem}.input-text:focus{outline:2px solid var(--accent);border-color:transparent}
 .cron-engine-cards{display:flex;flex-direction:column;gap:.75rem}.cron-card{border:1px solid var(--line);background:var(--surface);padding:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem}.cron-card-info{display:flex;flex-direction:column;gap:.25rem}.cron-card-title{font-weight:650;font-size:.9rem;display:flex;align-items:center;gap:.5rem}.cron-card-desc{font-size:.78rem;color:var(--muted)}.cron-card-meta{font-size:.75rem;color:var(--muted);font-family:ui-monospace,monospace}.confirm-modal{position:fixed;inset:0;margin:auto;max-width:480px;width:90%;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:1.5rem;box-shadow:0 24px 48px rgba(0,0,0,.7);z-index:200}.confirm-modal::backdrop{background:rgba(0,0,0,.8);backdrop-filter:blur(4px)}.confirm-content{display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem}.confirm-icon{font-size:2rem;line-height:1}.confirm-title{font-size:1.1rem;font-weight:650;margin:0 0 .4rem 0}.confirm-msg{font-size:.85rem;color:var(--muted);line-height:1.45;margin:0}.confirm-actions{display:flex;justify-content:flex-end;gap:.75rem}.btn-cancel{background:transparent;border:1px solid var(--line);color:var(--text);padding:.5rem 1rem;font-weight:600;cursor:pointer}.btn-cancel:hover{border-color:var(--muted)}.btn-confirm-danger{background:var(--danger);color:#08110b;border:0;padding:.5rem 1rem;font-weight:650;cursor:pointer}.btn-confirm-danger:hover{filter:brightness(1.1)}
 @media(max-width:800px){.topbar{align-items:flex-start;flex-direction:column}.topbar-actions{width:100%;justify-content:space-between}.metric-strip{grid-template-columns:1fr 1fr}.metric-strip>div{border-bottom:1px solid var(--line)}.split{grid-template-columns:1fr;gap:0}.event{grid-template-columns:1fr}.event span{overflow-wrap:anywhere}.user-add-form{flex-direction:column;align-items:stretch}.task-toolbar{flex-direction:column;align-items:stretch}.task-search{max-width:none}.cron-card{flex-direction:column;align-items:flex-start}}@media(max-width:420px){.metric-strip{grid-template-columns:1fr}.metric-strip>div{border-right:0}}
 `;
@@ -398,6 +399,7 @@ async function openTaskDetail(taskId){
         }
       }
     }
+    const st=statusMap[t.status]||{label:t.status,cls:''};
     const items=[
       ['STATUS',st.label],
       ['PEMILIK','+'+t.phoneNumber+(t.userName?' ('+t.userName+')':'')],
@@ -411,6 +413,69 @@ async function openTaskDetail(taskId){
       dt.textContent=k;dd.textContent=v;d.append(dt,dd);grid.append(d);
     }
     modalBody.append(grid);
+
+    // Admin Reschedule & Reminder Adjustment Panel
+    const schSec=document.createElement('div');schSec.className='detail-card';
+    const schH4=document.createElement('h4');schH4.textContent='Atur Waktu Pengingat & Deadline';
+    const schDesc=document.createElement('p');schDesc.className='muted';schDesc.style.fontSize='.8rem';schDesc.style.margin='0 0 .75rem 0';
+    schDesc.textContent='Ubah target waktu deadline atau sesuaikan berapa menit sebelum deadline pengingat dikirim ke WhatsApp.';
+    
+    const schForm=document.createElement('div');schForm.className='schedule-form';
+    const deadGroup=document.createElement('div');deadGroup.className='form-group';
+    const deadLabel=document.createElement('label');deadLabel.textContent='Target Waktu (Deadline Baru)';
+    const deadInput=document.createElement('input');deadInput.type='datetime-local';deadInput.className='input-text';
+    if(t.deadline){
+      const dt=new Date(t.deadline);
+      const localIso=new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+      deadInput.value=localIso;
+    }
+    deadGroup.append(deadLabel,deadInput);
+
+    const leadGroup=document.createElement('div');leadGroup.className='form-group';
+    const leadLabel=document.createElement('label');leadLabel.textContent='Ingatkan Awal (Menit Sebelum)';
+    const leadInput=document.createElement('input');leadInput.type='number';leadInput.min='1';leadInput.max='10080';leadInput.placeholder='Contoh: 15';leadInput.className='input-text';
+    if(t.deadline&&t.remindAt){
+      const diff=Math.round((new Date(t.deadline).getTime()-new Date(t.remindAt).getTime())/60000);
+      if(diff>0)leadInput.value=diff;
+    }
+    leadGroup.append(leadLabel,leadInput);
+
+    const btnSave=document.createElement('button');btnSave.type='button';btnSave.className='btn-sm btn-allow';btnSave.textContent='Simpan Jadwal Baru';
+    btnSave.onclick=async()=>{
+      if(!deadInput.value){alert('Pilih tanggal dan jam deadline baru terlebih dahulu.');return}
+      const newD=new Date(deadInput.value);
+      const leadM=leadInput.value?parseInt(leadInput.value,10):undefined;
+      const ok=await askAdminConfirmation(
+        'Simpan Jadwal Baru Tugas #'+t.id,
+        'Ubah deadline tugas menjadi '+newD.toLocaleString('id-ID')+(leadM?' dengan pengingat '+leadM+' menit sebelum deadline':'')+'?',
+        'Ya, Simpan Jadwal',
+        false
+      );
+      if(!ok)return;
+      btnSave.disabled=true;
+      try{
+        const r=await fetch('/api/tasks/reschedule',{
+          method:'POST',
+          headers:{'content-type':'application/json'},
+          body:JSON.stringify({taskId:t.id,newDeadline:newD.toISOString(),leadMinutes:leadM})
+        });
+        const resJson=await r.json();
+        if(resJson.success){
+          showUserFeedback('Jadwal tugas #'+t.id+' berhasil diperbarui!');
+          await Promise.all([openTaskDetail(t.id),loadTasks(),loadCrons()]);
+        }else{
+          showUserFeedback(resJson.error||'Gagal mengubah jadwal',true);
+        }
+      }catch{
+        showUserFeedback('Terjadi kesalahan jaringan',true);
+      }finally{
+        btnSave.disabled=false;
+      }
+    };
+
+    schForm.append(deadGroup,leadGroup,btnSave);
+    schSec.append(schH4,schDesc,schForm);
+    modalBody.append(schSec);
 
     if(data.subtasks&&data.subtasks.length>0){
       const sec=document.createElement('div');sec.className='detail-card';
