@@ -9,6 +9,7 @@ export interface ParseResult {
   deadline: Date | null;
   needsDeadline: boolean;
   rawText: string;
+  reminderLeadMinutes?: number | null;
 }
 
 export interface ParseOptions {
@@ -115,6 +116,74 @@ export function normalizeIndonesianTimePhrases(text: string): string {
 }
 
 /**
+ * Extracts explicit reminder lead time in minutes from task input text if present,
+ * e.g. "ingatkan 30 menit sebelumnya", "ingatkan 1 jam sebelum", "ingatkan H-1".
+ * Returns { leadMinutes: number | null, cleanedText: string }.
+ */
+export function extractExplicitReminderLead(text: string): { leadMinutes: number | null; cleanedText: string } {
+  let cleanedText = text;
+  let leadMinutes: number | null = null;
+
+  // 1. Pattern: "ingatkan H-1" or "H-1" (1 day before = 1440 mins)
+  const hPattern = /\b(?:ingatkan|remind\s*me|remind)?\s*h-(\d+)\b/i;
+  const hMatch = text.match(hPattern);
+  if (hMatch && hMatch[1]) {
+    const days = parseInt(hMatch[1], 10);
+    if (!isNaN(days) && days > 0 && days <= 7) {
+      leadMinutes = days * 1440;
+      cleanedText = cleanedText.replace(hPattern, '').trim();
+    }
+  }
+
+  // 2. Pattern: "ingatkan 30 menit sebelum(nya)", "ingatkan 1 jam sebelum", "remind me 15 mins before", etc.
+  if (leadMinutes === null) {
+    const durationPattern = /\b(?:ingatkan|remind\s*me|remind|notif)\s*(?:sebelumnya\s*|sebelum\s*|sblm\s*)?(\d+)\s*(menit|jam|hari|mins?|minutes?|hours?|hrs?|days?)(?:\s*(?:sebelumnya|sebelum|sblm|before))?\b/i;
+    const durMatch = text.match(durationPattern);
+    if (durMatch && durMatch[1] && durMatch[2]) {
+      const val = parseInt(durMatch[1], 10);
+      const unit = durMatch[2].toLowerCase();
+      if (!isNaN(val) && val > 0) {
+        if (unit.startsWith('menit') || unit.startsWith('min')) {
+          leadMinutes = val;
+        } else if (unit.startsWith('jam') || unit.startsWith('hour') || unit.startsWith('hr')) {
+          leadMinutes = val * 60;
+        } else if (unit.startsWith('hari') || unit.startsWith('day')) {
+          leadMinutes = val * 1440;
+        }
+        cleanedText = cleanedText.replace(durationPattern, '').trim();
+      }
+    }
+  }
+
+  // 3. Pattern: "(30 menit|1 jam) sebelum(nya)" without "ingatkan" keyword when at the end or separated by comma
+  if (leadMinutes === null) {
+    const standalonePattern = /[,(]?\s*(\d+)\s*(menit|jam|hari|mins?|minutes?|hours?|hrs?|days?)\s*(?:sebelumnya|sebelum|sblm|before)\s*[)]?/i;
+    const standMatch = text.match(standalonePattern);
+    if (standMatch && standMatch[1] && standMatch[2]) {
+      const val = parseInt(standMatch[1], 10);
+      const unit = standMatch[2].toLowerCase();
+      if (!isNaN(val) && val > 0) {
+        if (unit.startsWith('menit') || unit.startsWith('min')) {
+          leadMinutes = val;
+        } else if (unit.startsWith('jam') || unit.startsWith('hour') || unit.startsWith('hr')) {
+          leadMinutes = val * 60;
+        } else if (unit.startsWith('hari') || unit.startsWith('day')) {
+          leadMinutes = val * 1440;
+        }
+        cleanedText = cleanedText.replace(standalonePattern, '').trim();
+      }
+    }
+  }
+
+  if (leadMinutes !== null) {
+    leadMinutes = Math.min(Math.max(leadMinutes, 1), 10080);
+    cleanedText = cleanedText.replace(/\s+/g, ' ').replace(/^[-:., ]+|[-:., ]+$/g, '').trim();
+  }
+
+  return { leadMinutes, cleanedText };
+}
+
+/**
  * Local fallback parser combining regex & chrono.en with timezone awareness
  */
 export function parseLocalTask(text: string, now: Date = new Date(), timezone = 'Asia/Jakarta'): ParseResult {
@@ -122,6 +191,10 @@ export function parseLocalTask(text: string, now: Date = new Date(), timezone = 
 
   // Strip /todo command prefix if present
   let cleanInput = trimmed.replace(/^\/todo\s+/i, '').replace(/^todo:\s*/i, '').trim();
+
+  // Extract explicit per-task reminder lead time if requested (e.g. "ingatkan 30 menit sebelumnya")
+  const { leadMinutes: explicitLeadMinutes, cleanedText: textWithoutLead } = extractExplicitReminderLead(cleanInput);
+  cleanInput = textWithoutLead;
 
   const normalized = normalizeIndonesianTimePhrases(cleanInput);
   const tzOffsetMinutes = getTimezoneOffsetMinutes(timezone, now);
@@ -163,6 +236,7 @@ export function parseLocalTask(text: string, now: Date = new Date(), timezone = 
       deadline,
       needsDeadline: false,
       rawText: text,
+      reminderLeadMinutes: explicitLeadMinutes,
     };
   }
 
@@ -172,6 +246,7 @@ export function parseLocalTask(text: string, now: Date = new Date(), timezone = 
     deadline: null,
     needsDeadline: true,
     rawText: text,
+    reminderLeadMinutes: explicitLeadMinutes,
   };
 }
 
@@ -256,12 +331,13 @@ Analisis pesan berikut: "${trimmed}"
 
 Instruksi:
 1. Tentukan apakah pesan ini adalah sebuah tugas (isTask: true/false).
-2. Bersihkan judul tugas dari kata penunjuk waktu (taskTitle).
+2. Bersihkan judul tugas dari kata penunjuk waktu serta frasa permintaan pengingat (taskTitle).
 3. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z").
 4. ATURAN WAJIB: Jika pengguna TIDAK menyebutkan keterangan tanggal, hari, jam, atau waktu sama sekali, JANGAN PERNAH berasumsi, menebak, atau menentukan sendiri batas waktunya! Isi deadline: null dan needsDeadline: true.
+5. Jika pengguna secara eksplisit meminta waktu pengingat awal (contoh: "ingatkan 30 menit sebelumnya", "ingatkan 1 jam sebelum", "remind me 15 mins before", "ingatkan H-1"), hitung dan ekstrak durasinya dalam satuan menit integer (contoh: 30, 60, 120, 1440) ke field reminderLeadMinutes. Jika pengguna TIDAK meminta waktu pengingat khusus, isi reminderLeadMinutes: null.
 
 Balas HANYA dengan JSON valid tanpa markdown formatting:
-{"isTask": boolean, "taskTitle": string, "deadline": string | null, "needsDeadline": boolean}`;
+{"isTask": boolean, "taskTitle": string, "deadline": string | null, "needsDeadline": boolean, "reminderLeadMinutes": number | null}`;
 
   // 3. Tier 1: Try Gemini Structured Extraction if client is configured
   const gemini = options.geminiClient !== undefined ? options.geminiClient : getGeminiClient();
@@ -303,12 +379,18 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
         },
       });
 
+      let explicitLead: number | null = null;
+      if (typeof parsed.reminderLeadMinutes === 'number' && parsed.reminderLeadMinutes > 0) {
+        explicitLead = Math.min(Math.max(Math.round(parsed.reminderLeadMinutes), 1), 10080);
+      }
+
       return {
         isTask: Boolean(parsed.isTask),
         taskTitle: parsed.taskTitle || trimmed,
         deadline: parsed.deadline ? new Date(parsed.deadline) : null,
         needsDeadline: Boolean(parsed.needsDeadline),
         rawText: text,
+        reminderLeadMinutes: explicitLead,
       };
     } catch (err: any) {
       recordAiUsage(telemetry, {
@@ -337,12 +419,18 @@ Balas HANYA dengan JSON valid tanpa markdown formatting:
           durationMs: performance.now() - startedAt,
         });
         console.log(`✨ [NLP] Berhasil diproses menggunakan Antigravity CLI Bridge!`);
+        let explicitLead: number | null = null;
+        if (typeof parsed.reminderLeadMinutes === 'number' && parsed.reminderLeadMinutes > 0) {
+          explicitLead = Math.min(Math.max(Math.round(parsed.reminderLeadMinutes), 1), 10080);
+        }
+
         return {
           isTask: Boolean(parsed.isTask),
           taskTitle: parsed.taskTitle || trimmed,
           deadline: parsed.deadline ? new Date(parsed.deadline) : null,
           needsDeadline: Boolean(parsed.needsDeadline),
           rawText: text,
+          reminderLeadMinutes: explicitLead,
         };
       } catch (parseErr: any) {
         recordAiUsage(telemetry, {

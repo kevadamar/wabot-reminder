@@ -346,7 +346,10 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       });
 
       const deadline = nlpResult.deadline;
-      const remindAt = deadline ? calculateRemindAt(deadline, { leadMinutes: user.leadReminderMinutes }) : null;
+      const effectiveLead = (nlpResult.reminderLeadMinutes && nlpResult.reminderLeadMinutes > 0)
+        ? nlpResult.reminderLeadMinutes
+        : user.leadReminderMinutes;
+      const remindAt = deadline ? calculateRemindAt(deadline, { leadMinutes: effectiveLead }) : null;
 
       const created = await createTask(db, {
         userJid: remoteJid,
@@ -371,8 +374,16 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
       if (deadline) {
         const deadlineStr = formatDateTime(deadline, user.timezone);
+        let reminderNote = '';
+        if (nlpResult.reminderLeadMinutes && nlpResult.reminderLeadMinutes > 0) {
+          const leadTxt = nlpResult.reminderLeadMinutes >= 60 && nlpResult.reminderLeadMinutes % 60 === 0
+            ? `${nlpResult.reminderLeadMinutes / 60} jam`
+            : `${nlpResult.reminderLeadMinutes} menit`;
+          const remindStr = remindAt ? formatDateTime(remindAt, user.timezone) : '';
+          reminderNote = `\n⏱️ Pengingat Khusus: *${leadTxt} sebelum deadline* (${remindStr})`;
+        }
         const reply = await sock.sendMessage(remoteJid, {
-          text: `✅ *Tugas & Lampiran Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*\n📎 Lampiran: *${fileName}*${TASK_FOOTER_NOTE}`,
+          text: `✅ *Tugas & Lampiran Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*${reminderNote}\n📎 Lampiran: *${fileName}*${TASK_FOOTER_NOTE}`,
         });
         if (reply?.key?.id) {
           await linkTaskMessage(db, created.id, reply.key.id);
@@ -1144,8 +1155,12 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   }
 
   // Task has a deadline
+  const effectiveLeadMinutes = (nlpResult.reminderLeadMinutes && nlpResult.reminderLeadMinutes > 0)
+    ? nlpResult.reminderLeadMinutes
+    : user.leadReminderMinutes;
+
   const remindAt = calculateRemindAt(nlpResult.deadline, {
-    leadMinutes: user.leadReminderMinutes,
+    leadMinutes: effectiveLeadMinutes,
   });
 
   const created = await createTask(db, {
@@ -1157,8 +1172,17 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   });
 
   const deadlineStr = formatDateTime(nlpResult.deadline, user.timezone);
+  let reminderNote = '';
+  if (nlpResult.reminderLeadMinutes && nlpResult.reminderLeadMinutes > 0) {
+    const leadTxt = nlpResult.reminderLeadMinutes >= 60 && nlpResult.reminderLeadMinutes % 60 === 0
+      ? `${nlpResult.reminderLeadMinutes / 60} jam`
+      : `${nlpResult.reminderLeadMinutes} menit`;
+    const remindStr = remindAt ? formatDateTime(remindAt, user.timezone) : '';
+    reminderNote = `\n⏱️ Pengingat Khusus: *${leadTxt} sebelum deadline* (${remindStr})`;
+  }
+
   const reply = await sock.sendMessage(remoteJid, {
-    text: `✅ *Tugas Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*\n\nAku akan ingatkan mendekati waktu tersebut. Semangat!${TASK_FOOTER_NOTE}`,
+    text: `✅ *Tugas Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*${reminderNote}\n\nAku akan ingatkan mendekati waktu tersebut. Semangat!${TASK_FOOTER_NOTE}`,
   });
 
   if (reply?.key?.id) {

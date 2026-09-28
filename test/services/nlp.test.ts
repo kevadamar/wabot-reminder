@@ -123,4 +123,46 @@ describe('Seam 1: NLP Intent & Deadline Extraction', () => {
     expect(r3.taskTitle).toBe('mau facial');
     expect(r3.deadline?.getUTCHours()).toBe(7);
   });
+
+  it('should extract explicit per-task reminder lead time (menit, jam, H-1) and clean the task title', async () => {
+    // 1. "Meeting project besok jam 15:00 ingatkan 30 menit sebelumnya"
+    const r1 = await parseTaskMessage('Meeting project besok jam 15:00 ingatkan 30 menit sebelumnya', {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r1.isTask).toBe(true);
+    expect(r1.taskTitle).toBe('Meeting project');
+    expect(r1.reminderLeadMinutes).toBe(30);
+    expect(r1.deadline).not.toBeNull();
+
+    // 2. "Presentasi besok jam 10 pagi ingatkan 1 jam sebelum"
+    const r2 = await parseTaskMessage('Presentasi besok jam 10 pagi ingatkan 1 jam sebelum', {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r2.isTask).toBe(true);
+    expect(r2.taskTitle).toBe('Presentasi');
+    expect(r2.reminderLeadMinutes).toBe(60);
+
+    // 3. "Ujian akhir besok jam 8 pagi ingatkan H-1"
+    const r3 = await parseTaskMessage('Ujian akhir besok jam 8 pagi ingatkan H-1', {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r3.isTask).toBe(true);
+    expect(r3.taskTitle).toBe('Ujian akhir');
+    expect(r3.reminderLeadMinutes).toBe(1440);
+
+    // 4. Default task without reminder phrase should have null/undefined reminderLeadMinutes
+    const r4 = await parseTaskMessage('Beli makan malam jam 7 malam', {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r4.isTask).toBe(true);
+    expect(r4.reminderLeadMinutes).toBeNull();
+  });
 });

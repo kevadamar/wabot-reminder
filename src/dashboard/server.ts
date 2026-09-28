@@ -259,10 +259,11 @@ export async function deleteDashboardUser(db: any, userJid: string) {
 
 export async function listDashboardTasks(
   db: any,
-  query: { status?: string; search?: string; userJid?: string; limit?: number } = {}
+  query: { status?: string; search?: string; userJid?: string; limit?: number; offset?: number } = {}
 ) {
   if (!db) return [];
   const limit = Math.min(Math.max(query.limit || 50, 1), 200);
+  const offset = Math.max(query.offset || 0, 0);
 
   const baseQuery = db
     .select({
@@ -306,7 +307,8 @@ export async function listDashboardTasks(
       asc(tasks.deadline),
       desc(tasks.createdAt)
     )
-    .limit(limit);
+    .limit(limit)
+    .offset(offset);
 
   return rows.map((r: any) => ({
     id: r.id,
@@ -324,6 +326,35 @@ export async function listDashboardTasks(
     createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
     updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
   }));
+}
+
+export async function countDashboardTasks(
+  db: any,
+  query: { status?: string; search?: string; userJid?: string } = {}
+): Promise<number> {
+  if (!db) return 0;
+  const conditions = [];
+  if (query.userJid) {
+    conditions.push(eq(tasks.userJid, query.userJid));
+  }
+  if (query.status && query.status !== 'all') {
+    if (query.status === 'active') {
+      conditions.push(or(eq(tasks.status, 'pending'), eq(tasks.status, 'pending_deadline')));
+    } else {
+      conditions.push(eq(tasks.status, query.status));
+    }
+  }
+  if (query.search && query.search.trim()) {
+    conditions.push(ilike(tasks.task, `%${query.search.trim()}%`));
+  }
+
+  const countQuery = db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(tasks);
+
+  const finalQuery = conditions.length > 0 ? countQuery.where(and(...conditions)) : countQuery;
+  const res = await finalQuery;
+  return Number(res[0]?.count || 0);
 }
 
 export async function getDashboardTaskDetail(db: any, taskId: number) {
@@ -679,8 +710,16 @@ export function createDashboardHandler(options: {
           const search = url.searchParams.get('search') || undefined;
           const userJid = url.searchParams.get('userJid') || undefined;
           const limit = url.searchParams.has('limit') ? parseInt(url.searchParams.get('limit')!, 10) : undefined;
-          const tasksList = await listDashboardTasks(options.db, { status, search, userJid, limit });
-          return Response.json(tasksList, { headers: secureHeaders('application/json; charset=utf-8') });
+          const offset = url.searchParams.has('offset') ? parseInt(url.searchParams.get('offset')!, 10) : undefined;
+          const [tasksList, totalCount] = await Promise.all([
+            listDashboardTasks(options.db, { status, search, userJid, limit, offset }),
+            countDashboardTasks(options.db, { status, search, userJid }),
+          ]);
+          const headers = secureHeaders('application/json; charset=utf-8');
+          headers.set('x-total-count', String(totalCount));
+          headers.set('x-limit', String(limit || 50));
+          headers.set('x-offset', String(offset || 0));
+          return Response.json(tasksList, { headers });
         } catch (err: any) {
           return Response.json(
             { error: err?.message || 'FAILED_TO_LIST_TASKS' },

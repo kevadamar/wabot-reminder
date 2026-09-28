@@ -297,6 +297,17 @@ describe('Monitoring dashboard HTTP boundary & user whitelist management', () =>
     expect(searchTasks.length).toBe(1);
     expect(searchTasks[0]?.id).toBe(parentTask!.id);
 
+    // TEST: Pagination (limit & offset)
+    const pagedRes = await handler(
+      new Request('http://localhost/api/tasks?limit=1&offset=1', { headers: authHeaders })
+    );
+    expect(pagedRes.status).toBe(200);
+    expect(pagedRes.headers.get('x-total-count')).toBe('3');
+    expect(pagedRes.headers.get('x-limit')).toBe('1');
+    expect(pagedRes.headers.get('x-offset')).toBe('1');
+    const pagedTasks = (await pagedRes.json()) as any[];
+    expect(pagedTasks.length).toBe(1);
+
     // TEST: GET /api/tasks/detail for parent task
     const detailRes = await handler(
       new Request(`http://localhost/api/tasks/detail?id=${parentTask!.id}`, { headers: authHeaders })
