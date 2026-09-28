@@ -467,7 +467,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
   // 3.6. Image Quality Mode settings
   const mediaSettingMatch = trimmedText.match(
-    /^(?:\/setting\s+|setting\s+)?(?:media|kualitas_gambar|kualitas\s*gambar)(?:\s+(.+))?$/i
+    /^(?:\/?setting\s+(?:media|kualitas[_\s]*gambar)|\/media|\/?kualitas[_\s]*gambar)(?:\s+(.+))?$/i
   );
   if (mediaSettingMatch) {
     const action = mediaSettingMatch[1]?.trim().toLowerCase();

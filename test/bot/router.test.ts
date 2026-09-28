@@ -566,4 +566,30 @@ describe('Seam 5: Message & Reaction Router', () => {
     const userSettingsCheck2 = await db.select().from(userSettings);
     expect(userSettingsCheck2[0]?.imageQualityMode).toBe('high');
   });
+
+  it('should not intercept normal tasks starting with "media" as a setting command', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_MEDIA_TASK' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_MEDIA_TASK' },
+      message: { conversation: 'Media briefing rilis pers besok jam 10:00' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).not.toContain('Pilihan kualitas gambar tidak dikenali');
+    expect(sentMessages[0]).toContain('Tugas Dicatat');
+    expect(sentMessages[0]).toContain('Media briefing');
+
+    const createdTasks = await db.select().from(tasks);
+    expect(createdTasks.length).toBe(1);
+    expect(createdTasks[0]?.task).toContain('Media briefing');
+  });
 });
