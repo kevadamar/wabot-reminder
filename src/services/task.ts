@@ -93,6 +93,26 @@ export async function updateUserName(
 }
 
 /**
+ * Updates the lead reminder minutes for a user
+ */
+export async function updateLeadReminderMinutes(
+  db: any,
+  userJid: string,
+  leadMinutes: number
+): Promise<UserSetting | null> {
+  const updated = await db
+    .update(userSettings)
+    .set({
+      leadReminderMinutes: leadMinutes,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userJid, userJid))
+    .returning();
+
+  return updated[0] ?? null;
+}
+
+/**
  * Creates a new task in database
  */
 export async function createTask(db: any, input: CreateTaskInput): Promise<Task> {
@@ -355,7 +375,7 @@ export async function rescheduleTask(
   const oldDeadline = task.deadline ? new Date(task.deadline) : null;
   const now = params.now ?? new Date();
   const remindAt = calculateRemindAt(params.newDeadline, {
-    leadMinutes: params.leadMinutes ?? 30,
+    leadMinutes: params.leadMinutes ?? config.defaultReminderLeadMinutes,
     now,
   });
   const isFuture = params.newDeadline.getTime() > now.getTime();

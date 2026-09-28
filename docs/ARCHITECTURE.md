@@ -190,7 +190,7 @@ erDiagram
         varchar user_jid PK "WhatsApp remote JID (e.g. 628123@s.whatsapp.net)"
         varchar name "Contact / display name"
         varchar timezone "User timezone (default: Asia/Jakarta)"
-        int lead_reminder_minutes "Default advance reminder notice (default: 30)"
+        int lead_reminder_minutes "Default advance reminder notice (default: 10)"
         boolean is_allowed "Access control flag (whitelist)"
         boolean morning_digest_enabled "Opt-in daily morning digest flag (default: false)"
         varchar morning_digest_time "Configured local digest time (default: 06:00)"

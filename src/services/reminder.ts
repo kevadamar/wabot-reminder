@@ -22,24 +22,27 @@ export interface RemindAtOptions {
 
 /**
  * Calculates adaptive remind_at timestamp based on distance to deadline:
- * - Distance > 2 hours: remind (leadMinutes || 30) minutes before
- * - Distance between 30 minutes and 2 hours: remind 15 minutes before
- * - Distance < 30 minutes: remind at exact deadline time
+ * - Distance <= leadMinutes: remind at exact deadline time (too close to send advance reminder)
+ * - If leadMinutes >= 30 and distance is between 30 and 120 mins: adaptively remind 15 minutes before
+ * - Otherwise: remind leadMinutes minutes before deadline
  */
 export function calculateRemindAt(deadline: Date, options: RemindAtOptions = {}): Date {
   const now = options.now ?? new Date();
   const diffMinutes = (deadline.getTime() - now.getTime()) / (60 * 1000);
-  const defaultLead = options.leadMinutes && options.leadMinutes > 0 ? options.leadMinutes : 30;
+  const defaultLead =
+    options.leadMinutes && options.leadMinutes > 0
+      ? options.leadMinutes
+      : (config.defaultReminderLeadMinutes || 10);
 
-  if (diffMinutes > 120) {
-    return new Date(deadline.getTime() - defaultLead * 60 * 1000);
-  }
-
-  if (diffMinutes >= 30) {
+  if (defaultLead >= 30 && diffMinutes <= 120 && diffMinutes >= 30) {
     return new Date(deadline.getTime() - 15 * 60 * 1000);
   }
 
-  return new Date(deadline.getTime());
+  if (diffMinutes <= defaultLead) {
+    return new Date(deadline.getTime());
+  }
+
+  return new Date(deadline.getTime() - defaultLead * 60 * 1000);
 }
 
 export type DispatchMessageCallback = (task: Task, isOverdue: boolean) => Promise<string | null>;

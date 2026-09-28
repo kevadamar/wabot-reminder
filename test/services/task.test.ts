@@ -13,6 +13,7 @@ import {
   getLatestPendingDeadlineTask,
   updateImageQualityMode,
   updateUserName,
+  updateLeadReminderMinutes,
 } from '../../src/services/task.js';
 
 describe('Seam 3: Task Management & State Operations', () => {
@@ -187,5 +188,16 @@ describe('Seam 3: Task Management & State Operations', () => {
 
     const check = await db.select().from(userSettings);
     expect(check[0]?.name).toBe('Keva Damar');
+  });
+
+  it('should update lead reminder minutes in user settings', async () => {
+    const user = await ensureUserSettings(db, testUserJid, 'Budi Test', true);
+    expect(user.leadReminderMinutes).toBe(10); // Default is 10 minutes
+
+    const updated = await updateLeadReminderMinutes(db, testUserJid, 15);
+    expect(updated?.leadReminderMinutes).toBe(15);
+
+    const check = await db.select().from(userSettings);
+    expect(check[0]?.leadReminderMinutes).toBe(15);
   });
 });

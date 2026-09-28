@@ -14,28 +14,28 @@ describe('Seam 2: Adaptive Reminder Calculator & Dispatcher', () => {
     await db.delete(userSettings);
   });
 
-  it('should remind 30 minutes before deadline when deadline is > 2 hours away', () => {
+  it('should remind 10 minutes before deadline by default when deadline is > 10 mins away', () => {
     const deadline = new Date('2026-09-26T13:00:00.000Z');
     const remindAt = calculateRemindAt(deadline, { now: baseNow });
-    expect(remindAt.toISOString()).toBe('2026-09-26T12:30:00.000Z');
+    expect(remindAt.toISOString()).toBe('2026-09-26T12:50:00.000Z');
   });
 
   it('should respect custom leadMinutes when deadline is > 2 hours away', () => {
     const deadline = new Date('2026-09-26T13:00:00.000Z');
-    const remindAt = calculateRemindAt(deadline, { leadMinutes: 45, now: baseNow });
-    expect(remindAt.toISOString()).toBe('2026-09-26T12:15:00.000Z');
+    const remindAt = calculateRemindAt(deadline, { leadMinutes: 15, now: baseNow });
+    expect(remindAt.toISOString()).toBe('2026-09-26T12:45:00.000Z');
   });
 
-  it('should remind 15 minutes before deadline when deadline is between 30 mins and 2 hours away', () => {
+  it('should adaptively remind 15 minutes before deadline when leadMinutes is 30 and distance is between 30 mins and 2 hours away', () => {
     const deadline = new Date('2026-09-26T11:00:00.000Z');
-    const remindAt = calculateRemindAt(deadline, { now: baseNow });
+    const remindAt = calculateRemindAt(deadline, { leadMinutes: 30, now: baseNow });
     expect(remindAt.toISOString()).toBe('2026-09-26T10:45:00.000Z');
   });
 
-  it('should remind at exact deadline when deadline is < 30 mins away', () => {
-    const deadline = new Date('2026-09-26T10:20:00.000Z');
+  it('should remind at exact deadline when deadline is <= leadMinutes away', () => {
+    const deadline = new Date('2026-09-26T10:05:00.000Z');
     const remindAt = calculateRemindAt(deadline, { now: baseNow });
-    expect(remindAt.toISOString()).toBe('2026-09-26T10:20:00.000Z');
+    expect(remindAt.toISOString()).toBe('2026-09-26T10:05:00.000Z');
   });
 
   it('should query due reminders and dispatch them', async () => {

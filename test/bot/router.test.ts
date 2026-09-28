@@ -638,4 +638,70 @@ describe('Seam 5: Message & Reaction Router', () => {
     const updated = await db.select().from(userSettings);
     expect(updated[0]?.name).toBe('Keva Damar');
   });
+
+  it('should display reminder lead time status with "/setting reminder"', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_REMINDER_STATUS' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_REMINDER_STATUS' },
+      message: { conversation: '/setting reminder' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Pengaturan Waktu Pengingat');
+    expect(sentMessages[0]).toContain('10 menit');
+    expect(sentMessages[0]).toContain('/setting reminder <menit>');
+  });
+
+  it('should update reminder lead time with "/setting reminder <menit>"', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_REMINDER_UPDATE' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_REMINDER_UPDATE' },
+      message: { conversation: '/setting reminder 15' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Waktu Pengingat Berhasil Diatur');
+    expect(sentMessages[0]).toContain('15 menit');
+
+    const updated = await db.select().from(userSettings);
+    expect(updated[0]?.leadReminderMinutes).toBe(15);
+  });
+
+  it('should warn if reminder lead time is invalid', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_REMINDER_INVALID' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_REMINDER_INVALID' },
+      message: { conversation: '/setting reminder abc' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('harus berupa angka menit antara 1 sampai 1440');
+  });
 });

@@ -84,7 +84,7 @@ OWNER_NUMBER=628123456789
 TIMEZONE=Asia/Jakarta
 
 # Lead Time Pengingat Default (Menit)
-DEFAULT_REMINDER_LEAD_MINUTES=30
+DEFAULT_REMINDER_LEAD_MINUTES=10
 
 # Dashboard read-only (opsional, default nonaktif)
 DASHBOARD_ENABLED=false
@@ -133,12 +133,16 @@ Saat pertama kali dijalankan, **QR Code** akan muncul di terminal. Pindai (scan)
 | `/pagi status` | Melihat status, waktu, dan timezone ringkasan pagi | `/pagi status` |
 | `/username <Nama>` | Mengatur nama panggilan agar sistem mengenali pengguna | `/username Keva` |
 | `/username` | Mengecek nama panggilan yang tersimpan saat ini | `/username` |
+| `/setting reminder <menit>` | Mengatur lead time pengingat awal sebelum deadline (1–1440 m) | `/setting reminder 10` |
+| `/setting reminder` | Mengecek lead time pengingat yang aktif saat ini | `/setting reminder` |
 | `/setting media` | Mengecek status kualitas gambar lampiran saat ini | `/setting media` |
 | `/setting media tinggi` | Kualitas tinggi (Maks 4K / 4096px, default, quality 85) | `/setting media tinggi` |
 | `/setting media hemat` | Kualitas hemat (Maks 2K / 2048px, quality 85) | `/setting media hemat` |
 | `/help` atau `bantuan` | Menampilkan panduan lengkap interaksi | `bantuan` |
 
 Ringkasan pagi bersifat **opt-in** (default-nya nonaktif). Saat aktif, bot mengirimkan sapaan personal sesuai nama pengguna (`/username`), rekap tugas selesai kemarin (`📊 Kemarin: X tugas selesai 🎉`), pengingat ramah untuk tugas terlewat/overdue (maksimal 3 tugas teratas dengan saran aksi cepat dan ajakan cek `list`), serta agenda tugas hari ini lengkap dengan ID tugas. Bot hanya memanggil AI ketika minimal satu user aktif benar-benar due. Satu pantun pendek di-cache per tanggal dan dipakai ulang; jika AI timeout atau gagal, bot langsung memakai pantun lokal.
+
+Lead time pengingat awal default-nya adalah **10 menit** sebelum deadline (dapat disesuaikan secara dinamis via `/setting reminder <menit>` atau melalui `DEFAULT_REMINDER_LEAD_MINUTES` di environment). Jika sisa waktu ke deadline kurang dari atau sama dengan lead time pengingat, pengingat akan dikirim tepat pada waktu deadline. Jika lead time diatur ke 30 menit atau lebih dan jarak tugas 30–120 menit, bot adaptif mengirimkan pengingat 15 menit sebelum deadline.
 
 Kualitas gambar lampiran default-nya adalah **tinggi (high / 4K max)** dengan sanitasi CDR (menghapus GPS/EXIF dan proteksi pixel flood). Pengguna dapat mengubahnya menjadi hemat (2K max) kapan saja via `/setting media hemat`.
 

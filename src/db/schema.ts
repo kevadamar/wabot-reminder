@@ -19,7 +19,7 @@ export const userSettings = pgTable(
     userJid: varchar('user_jid', { length: 128 }).primaryKey(),
     name: varchar('name', { length: 128 }),
     timezone: varchar('timezone', { length: 64 }).default('Asia/Jakarta').notNull(),
-    leadReminderMinutes: integer('lead_reminder_minutes').default(30).notNull(),
+    leadReminderMinutes: integer('lead_reminder_minutes').default(10).notNull(),
     isAllowed: boolean('is_allowed').default(false).notNull(),
     morningDigestEnabled: boolean('morning_digest_enabled').default(false).notNull(),
     morningDigestTime: varchar('morning_digest_time', { length: 5 }).default('06:00').notNull(),

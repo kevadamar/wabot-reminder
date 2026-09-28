@@ -19,6 +19,7 @@ import {
   getTaskAttachments,
   updateImageQualityMode,
   updateUserName,
+  updateLeadReminderMinutes,
 } from '../../services/task.js';
 import { parseTaskMessage, parseLocalTask } from '../../services/nlp.js';
 import { calculateRemindAt } from '../../services/reminder.js';
@@ -90,6 +91,10 @@ Balas langsung ke pesan tugas yang ingin diubah:
 👤 *Nama Pengguna:*
 • */username <NamaKamu>* : Atur nama panggilan agar bot mengenali kamu
 • */username* : Cek nama panggilan saat ini
+
+⏱️ *Waktu Pengingat (Lead Time):*
+• */setting reminder <menit>* : Atur waktu pengingat awal (cth: _/setting reminder 10_)
+• */setting reminder* : Cek waktu pengingat saat ini
 
 ✅ *Menyelesaikan Tugas:*
 • Beri reaksi emoji ✅ pada pesan pengingat, ATAU
@@ -532,6 +537,34 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     await updateUserName(db, remoteJid, newName);
     await sock.sendMessage(remoteJid, {
       text: `✅ *Nama Berhasil Disimpan!*\n\nHalo, *${newName}*! 👋 Sekarang sistem bot sudah mengenali kamu dengan nama ini untuk sapaan, pengingat tugas, dan ringkasan pagi. ✨`,
+    });
+    return;
+  }
+
+  // 3.8. Reminder Lead Time settings
+  const reminderSettingMatch = trimmedText.match(
+    /^(?:\/?setting\s+(?:reminder|pengingat)|\/reminder|\/pengingat)(?:\s+(.+))?$/i
+  );
+  if (reminderSettingMatch) {
+    const rawVal = reminderSettingMatch[1]?.trim();
+    if (!rawVal || rawVal.toLowerCase() === 'status' || rawVal.toLowerCase() === 'cek' || rawVal.toLowerCase() === 'info') {
+      await sock.sendMessage(remoteJid, {
+        text: `⏱️ *Pengaturan Waktu Pengingat (Lead Time)*\n\nWaktu pengingat saat ini: *${user.leadReminderMinutes} menit* sebelum deadline.\n\nBot akan otomatis mengingatkan tugas ${user.leadReminderMinutes} menit sebelum target waktu.\n\nUntuk mengubahnya, ketik:\n• */setting reminder <menit>*\n(contoh: _/setting reminder 10_ atau _/setting reminder 15_)`,
+      });
+      return;
+    }
+
+    const minutes = parseInt(rawVal, 10);
+    if (isNaN(minutes) || minutes < 1 || minutes > 1440) {
+      await sock.sendMessage(remoteJid, {
+        text: `⚠️ Waktu pengingat harus berupa angka menit antara 1 sampai 1440 (contoh: */setting reminder 10* atau */setting reminder 15*).`,
+      });
+      return;
+    }
+
+    await updateLeadReminderMinutes(db, remoteJid, minutes);
+    await sock.sendMessage(remoteJid, {
+      text: `⏱️ *Waktu Pengingat Berhasil Diatur!*\n\nPengingat awal sekarang diatur ke *${minutes} menit* sebelum deadline. Setiap tugas baru akan otomatis diingatkan ${minutes} menit sebelum waktunya. ✨`,
     });
     return;
   }

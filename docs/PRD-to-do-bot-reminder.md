@@ -115,7 +115,7 @@ A lightweight WhatsApp bot designed to help users capture and manage their tasks
 | `user_jid` | VARCHAR(128) | PK | User WhatsApp JID (e.g. `628123456789@s.whatsapp.net`) |
 | `name` | VARCHAR(128) | Nullable | Optional contact/display name |
 | `timezone` | VARCHAR(64) | Default: `'Asia/Jakarta'` | User timezone for date parsing and display |
-| `lead_reminder_minutes` | INTEGER | Default: `30` | Default advance reminder lead time in minutes |
+| `lead_reminder_minutes` | INTEGER | Default: `10` | Default advance reminder lead time in minutes |
 | `is_allowed` | BOOLEAN | Default: `false` | Access whitelist control |
 | `morning_digest_enabled` | BOOLEAN | Default: `false` | Opt-in morning task summary flag |
 | `morning_digest_time` | VARCHAR(5) | Default: `'06:00'` | Configured local time for morning digest |

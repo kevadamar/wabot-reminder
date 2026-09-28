@@ -42,7 +42,7 @@ export async function initDb() {
       user_jid VARCHAR(128) PRIMARY KEY,
       name VARCHAR(128),
       timezone VARCHAR(64) DEFAULT 'Asia/Jakarta' NOT NULL,
-      lead_reminder_minutes INTEGER DEFAULT 30 NOT NULL,
+      lead_reminder_minutes INTEGER DEFAULT 10 NOT NULL,
       is_allowed BOOLEAN DEFAULT false NOT NULL,
       image_quality_mode VARCHAR(32) DEFAULT 'high' NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
@@ -70,6 +70,10 @@ export async function initDb() {
       ADD COLUMN IF NOT EXISTS morning_digest_time VARCHAR(5) DEFAULT '06:00' NOT NULL,
       ADD COLUMN IF NOT EXISTS morning_digest_updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
       ADD COLUMN IF NOT EXISTS image_quality_mode VARCHAR(32) DEFAULT 'high' NOT NULL;
+  `;
+
+  await client`
+    ALTER TABLE user_settings ALTER COLUMN lead_reminder_minutes SET DEFAULT 10;
   `;
 
   await client`
