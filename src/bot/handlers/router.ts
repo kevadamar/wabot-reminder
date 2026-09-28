@@ -810,7 +810,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   const resolveMatch = trimmedText.match(/^(\/selesai|\/done|selesai|done)\s+(\d+)$/i);
   if (resolveMatch && resolveMatch[2]) {
     const taskId = parseInt(resolveMatch[2], 10);
-    const resolved = await resolveTask(db, taskId, remoteJid);
+    const resolved = await resolveTask(db, taskId, remoteJid, trimmedText);
     if (!resolved) {
       await sock.sendMessage(remoteJid, { text: `Tugas ID [${taskId}] tidak ditemukan atau sudah selesai.` });
       return;
@@ -827,7 +827,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   const cancelMatch = trimmedText.match(/^(\/batal|\/hapus|batal|hapus)\s+(\d+)$/i);
   if (cancelMatch && cancelMatch[2]) {
     const taskId = parseInt(cancelMatch[2], 10);
-    const cancelled = await cancelTask(db, taskId, remoteJid);
+    const cancelled = await cancelTask(db, taskId, remoteJid, trimmedText);
     if (!cancelled) {
       await sock.sendMessage(remoteJid, { text: `Tugas ID [${taskId}] tidak ditemukan.` });
       return;
@@ -970,7 +970,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
     if (targetTask && targetTask.status !== 'resolved' && targetTask.status !== 'cancelled') {
       if (isDoneReply) {
-        const resolved = await resolveTask(db, targetTask.id, remoteJid);
+        const resolved = await resolveTask(db, targetTask.id, remoteJid, `Reply: "${trimmedText}"`);
         if (resolved) {
           const affirmation = await generateAffirmation(resolved.task);
           await sock.sendMessage(remoteJid, {
@@ -979,7 +979,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
           return;
         }
       } else if (isCancelReply) {
-        const cancelled = await cancelTask(db, targetTask.id, remoteJid);
+        const cancelled = await cancelTask(db, targetTask.id, remoteJid, `Reply: "${trimmedText}"`);
         if (cancelled) {
           await sock.sendMessage(remoteJid, {
             text: `🗑️ *Tugas Dibatalkan:*\n"${cancelled.task}"\n\nTugas ini sudah dicoret dari daftar aktifmu.`,
@@ -1216,7 +1216,7 @@ export async function handleIncomingReaction(sock: any, reactionEvent: any): Pro
 
   // Handle completion reactions (✅, ✔️, etc.)
   if (['✅', '✔️', '☑️', '👍'].includes(reactionText)) {
-    const resolved = await resolveTask(db, matchedTask.id, remoteJid);
+    const resolved = await resolveTask(db, matchedTask.id, remoteJid, `Reaction: ${reactionText}`);
     if (resolved) {
       const affirmation = await generateAffirmation(resolved.task);
       await sock.sendMessage(remoteJid, {
@@ -1228,7 +1228,7 @@ export async function handleIncomingReaction(sock: any, reactionEvent: any): Pro
 
   // Handle cancellation reactions (❌, 🚫, 🗑️, etc.)
   if (['❌', '🚫', '🗑️', '✖️'].includes(reactionText)) {
-    const cancelled = await cancelTask(db, matchedTask.id, remoteJid);
+    const cancelled = await cancelTask(db, matchedTask.id, remoteJid, `Reaction: ${reactionText}`);
     if (cancelled) {
       await sock.sendMessage(remoteJid, {
         text: `🗑️ *Tugas Dibatalkan:*\n"${cancelled.task}"\n\nTugas ini sudah dicoret dari daftar aktifmu.`,

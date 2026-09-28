@@ -172,7 +172,12 @@ export async function findTaskByMessageId(db: any, messageId: string): Promise<T
 /**
  * Resolves a task by ID
  */
-export async function resolveTask(db: any, taskId: number, userJid: string): Promise<Task | null> {
+export async function resolveTask(
+  db: any,
+  taskId: number,
+  userJid: string,
+  rawInput?: string | null
+): Promise<Task | null> {
   const updated = await db
     .update(tasks)
     .set({
@@ -190,7 +195,7 @@ export async function resolveTask(db: any, taskId: number, userJid: string): Pro
       fieldChanged: 'status',
       oldValue: 'pending',
       newValue: 'resolved',
-      rawInput: null,
+      rawInput: rawInput ?? null,
     });
   }
 
@@ -200,7 +205,12 @@ export async function resolveTask(db: any, taskId: number, userJid: string): Pro
 /**
  * Cancels a task by ID, cascading cancellation to active sub-tasks
  */
-export async function cancelTask(db: any, taskId: number, userJid: string): Promise<Task | null> {
+export async function cancelTask(
+  db: any,
+  taskId: number,
+  userJid: string,
+  rawInput?: string | null
+): Promise<Task | null> {
   const updated = await db
     .update(tasks)
     .set({
@@ -218,7 +228,7 @@ export async function cancelTask(db: any, taskId: number, userJid: string): Prom
       fieldChanged: 'status',
       oldValue: 'pending',
       newValue: 'cancelled',
-      rawInput: null,
+      rawInput: rawInput ?? null,
     });
 
     // Cascade cancellation to child subtasks
