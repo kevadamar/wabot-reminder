@@ -21,4 +21,5 @@ export const config = {
   dashboardUsername: process.env.DASHBOARD_USERNAME || '',
   dashboardPassword: process.env.DASHBOARD_PASSWORD || '',
   telemetryFlushIntervalMs: Math.max(10_000, parseInt(process.env.TELEMETRY_FLUSH_INTERVAL_MS || '60000', 10)),
+  adminInstagram: process.env.ADMIN_INSTAGRAM || '@kevadamar',
 };

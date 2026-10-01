@@ -232,6 +232,14 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_telemetry_events_occurred
       ON telemetry_events(occurred_at);
   `;
+
+  await client`
+    CREATE TABLE IF NOT EXISTS bot_settings (
+      key VARCHAR(64) PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    );
+  `;
 }
 
 export { client };

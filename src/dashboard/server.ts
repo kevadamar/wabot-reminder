@@ -20,7 +20,11 @@ import {
   ACTIVITY_CSS,
   ACTIVITY_HTML,
   ACTIVITY_JS,
+  SETTINGS_CSS,
+  SETTINGS_HTML,
+  SETTINGS_JS,
 } from './assets.js';
+import { getAdminInstagram, setAdminInstagram } from '../services/settings.js';
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -999,6 +1003,26 @@ export function createDashboardHandler(options: {
       if (pathname === '/activity.js') {
         return new Response(ACTIVITY_JS, { headers: secureHeaders('text/javascript; charset=utf-8') });
       }
+      if (pathname === '/settings') {
+        return new Response(SETTINGS_HTML, { headers: secureHeaders('text/html; charset=utf-8') });
+      }
+      if (pathname === '/settings.css') {
+        return new Response(SETTINGS_CSS, { headers: secureHeaders('text/css; charset=utf-8') });
+      }
+      if (pathname === '/settings.js') {
+        return new Response(SETTINGS_JS, { headers: secureHeaders('text/javascript; charset=utf-8') });
+      }
+      if (pathname === '/api/settings') {
+        try {
+          const adminInstagram = await getAdminInstagram(options.db);
+          return Response.json({ adminInstagram }, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_GET_SETTINGS' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
+      }
       if (pathname === '/api/activity') {
         try {
           const filter = url.searchParams.get('filter') || 'all';
@@ -1262,6 +1286,28 @@ export function createDashboardHandler(options: {
           return Response.json({ success }, { headers: secureHeaders('application/json; charset=utf-8') });
         } catch (err: any) {
           return Response.json({ error: err?.message || 'FAILED_TO_DELETE_USER' }, { status: 500, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+      }
+
+      if (pathname === '/api/settings') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          if (body?.adminInstagram === undefined || typeof body.adminInstagram !== 'string') {
+            return Response.json(
+              { error: 'MISSING_OR_INVALID_ADMIN_INSTAGRAM' },
+              { status: 400, headers: secureHeaders('application/json; charset=utf-8') }
+            );
+          }
+          const saved = await setAdminInstagram(options.db, body.adminInstagram);
+          return Response.json(
+            { success: true, adminInstagram: saved },
+            { headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_SAVE_SETTINGS' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
         }
       }
 

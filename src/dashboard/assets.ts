@@ -18,6 +18,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     <nav class="topbar-nav" aria-label="Navigasi Halaman">
       <a href="/" class="nav-tab active">Overview & Controls</a>
       <a href="/activity" class="nav-tab">Activity (APM)</a>
+      <a href="/settings" class="nav-tab">Settings</a>
     </nav>
     <div class="topbar-actions">
       <span id="last-updated" class="muted" aria-live="polite">Memuat data…</span>
@@ -1174,3 +1175,4 @@ load();setInterval(load,60000);
 `;
 
 export { ACTIVITY_HTML, ACTIVITY_CSS, ACTIVITY_JS } from './activity-assets.js';
+export { SETTINGS_HTML, SETTINGS_CSS, SETTINGS_JS } from './settings-assets.js';

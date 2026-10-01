@@ -201,6 +201,12 @@ export const telemetryEvents = pgTable(
   (table) => [index('idx_telemetry_events_occurred').on(table.occurredAt)]
 );
 
+export const botSettings = pgTable('bot_settings', {
+  key: varchar('key', { length: 64 }).primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type UserSetting = typeof userSettings.$inferSelect;
 export type InsertUserSetting = typeof userSettings.$inferInsert;
 
@@ -220,3 +226,5 @@ export type DailyDigestDelivery = typeof dailyDigestDeliveries.$inferSelect;
 export type DailyMotivation = typeof dailyMotivations.$inferSelect;
 export type TelemetryHourly = typeof telemetryHourly.$inferSelect;
 export type TelemetryEvent = typeof telemetryEvents.$inferSelect;
+export type BotSetting = typeof botSettings.$inferSelect;
+export type InsertBotSetting = typeof botSettings.$inferInsert;

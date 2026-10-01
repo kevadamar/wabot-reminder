@@ -37,6 +37,7 @@ import {
 import { and, eq } from 'drizzle-orm';
 import { tasks } from '../../db/schema.js';
 import { jidNormalizedUser, downloadMediaMessage } from '@whiskeysockets/baileys';
+import { getAdminInstagram } from '../../services/settings.js';
 
 /**
  * Resolves a task from a quoted message by matching stanzaId in task_messages,
@@ -291,9 +292,10 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   // 1. Check user permission
   const user = await ensureUserSettings(db, remoteJid, msg.pushName || null, false);
   if (!user.isAllowed) {
-    console.warn('⛔ [Akses Ditolak] Pesan dari user yang belum diizinkan diabaikan.');
+    console.warn(`[Akses Dibatasi] Pesan dari user ${remoteJid} direspons santai.`);
+    const igHandle = await getAdminInstagram(db);
     await sock.sendMessage(remoteJid, {
-      text: `⚠️ *Akses Dibatasi*\n\nNomor Anda (${remoteJid.replace('@s.whatsapp.net', '')}) belum terdaftar dalam whitelist bot to-do ini. Silakan hubungi pemilik bot atau periksa tabel database.`,
+      text: `Hai, makasih loh sudah mulai chat duluan. Tapi maaf kalau slow response ya, karena admin mungkin saja sedang rebahan manja, kamu bisa menghubungi admin melalui DM instagram ${igHandle} jika pesan kamu bertepuk sebelah tangan..ehh maksudnya tidak terbalaskan hehe`,
     });
     return;
   }

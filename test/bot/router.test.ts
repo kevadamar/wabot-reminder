@@ -1,8 +1,9 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { db } from '../../src/db/index.js';
-import { tasks, taskMessages, userSettings } from '../../src/db/schema.js';
+import { tasks, taskMessages, userSettings, botSettings } from '../../src/db/schema.js';
 import { handleIncomingMessage, handleIncomingReaction } from '../../src/bot/handlers/router.js';
 import { ensureUserSettings, createTask, linkTaskMessage } from '../../src/services/task.js';
+import { setAdminInstagram } from '../../src/services/settings.js';
 
 describe('Seam 5: Message & Reaction Router', () => {
   const allowedUserJid = '628123456789@s.whatsapp.net';
@@ -12,6 +13,7 @@ describe('Seam 5: Message & Reaction Router', () => {
     await db.delete(taskMessages);
     await db.delete(tasks);
     await db.delete(userSettings);
+    await db.delete(botSettings);
   });
 
   it('should ignore or warn unauthorized strangers', async () => {
@@ -34,6 +36,35 @@ describe('Seam 5: Message & Reaction Router', () => {
     // Verify stranger did not create any task
     const userTasks = await db.select().from(tasks);
     expect(userTasks.length).toBe(0);
+
+    // Verify friendly, non-explicit response was sent
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('@kevadamar');
+    expect(sentMessages[0]).toContain('rebahan manja');
+    expect(sentMessages[0]).not.toContain('Akses Dibatasi');
+    expect(sentMessages[0]).not.toContain('whitelist');
+  });
+
+  it('should use configured custom admin instagram handle for unauthorized strangers', async () => {
+    await ensureUserSettings(db, strangerJid, 'Stranger', false);
+    await setAdminInstagram(db, '@admin_spesial');
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_CUSTOM_ADMIN' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: strangerJid, id: 'MSG_IN_CUSTOM' },
+      message: { conversation: 'Permisi min' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('@admin_spesial');
+    expect(sentMessages[0]).not.toContain('@kevadamar');
   });
 
   it('should respond to /help command with friendly guide', async () => {

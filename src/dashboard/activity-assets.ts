@@ -22,6 +22,7 @@ export const ACTIVITY_HTML = `<!doctype html>
     <nav class="topbar-nav" aria-label="Navigasi Halaman">
       <a href="/" class="nav-tab">Overview & Controls</a>
       <a href="/activity" class="nav-tab active">Activity (APM)</a>
+      <a href="/settings" class="nav-tab">Settings</a>
     </nav>
     <div class="topbar-actions">
       <div class="filter-dropdown-wrap">
