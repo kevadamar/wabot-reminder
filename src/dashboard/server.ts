@@ -12,7 +12,14 @@ import {
 import { runtimeHealth } from '../services/telemetry.js';
 import { rescheduleTask } from '../services/task.js';
 import { config } from '../config/index.js';
-import { DASHBOARD_CSS, DASHBOARD_HTML, DASHBOARD_JS } from './assets.js';
+import {
+  DASHBOARD_CSS,
+  DASHBOARD_HTML,
+  DASHBOARD_JS,
+  ACTIVITY_CSS,
+  ACTIVITY_HTML,
+  ACTIVITY_JS,
+} from './assets.js';
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -127,6 +134,263 @@ export async function buildDashboardSnapshot(db: any) {
       maxValue: Number(row.maxValue),
     })),
     recentErrors: errorRows,
+  };
+}
+
+export interface HttpRequestLog {
+  timestamp: number;
+  path: string;
+  status: number;
+  durationMs: number;
+}
+
+const httpLogs: HttpRequestLog[] = [];
+const MAX_HTTP_LOGS = 2000;
+
+export function recordHttpRequest(path: string, status: number, durationMs: number) {
+  if (httpLogs.length >= MAX_HTTP_LOGS) {
+    httpLogs.shift();
+  }
+  httpLogs.push({ timestamp: Date.now(), path, status, durationMs });
+}
+
+export function clearHttpRequestLogs() {
+  httpLogs.length = 0;
+}
+
+export async function buildDashboardActivity(db: any, filter: string = 'all') {
+  const now = Date.now();
+  const since = new Date(now - 24 * 60 * 60 * 1000);
+
+  // 1. Query telemetry_hourly and telemetry_events from DB
+  const [hourlyRows, eventRows] = await Promise.all([
+    db
+      ? db
+          .select({
+            bucketAt: telemetryHourly.bucketAt,
+            metric: telemetryHourly.metric,
+            dimension: telemetryHourly.dimension,
+            count: telemetryHourly.count,
+            sumValue: telemetryHourly.sumValue,
+            maxValue: telemetryHourly.maxValue,
+          })
+          .from(telemetryHourly)
+          .where(gte(telemetryHourly.bucketAt, since))
+      : Promise.resolve([]),
+    db
+      ? db
+          .select({
+            occurredAt: telemetryEvents.occurredAt,
+            component: telemetryEvents.component,
+            operation: telemetryEvents.operation,
+            outcome: telemetryEvents.outcome,
+            errorCode: telemetryEvents.errorCode,
+            durationMs: telemetryEvents.durationMs,
+          })
+          .from(telemetryEvents)
+          .where(gte(telemetryEvents.occurredAt, since))
+          .limit(2000)
+      : Promise.resolve([]),
+  ]);
+
+  // 2. Generate 24 hourly buckets
+  const buckets: {
+    startMs: number;
+    endMs: number;
+    label: string;
+    timestamp: string;
+    status2xx: number;
+    status4xx: number;
+    status5xx: number;
+    durations: number[];
+  }[] = [];
+
+  const startOfCurrentHour = new Date(now);
+  startOfCurrentHour.setMinutes(0, 0, 0);
+
+  for (let i = 23; i >= 0; i--) {
+    const bTime = new Date(startOfCurrentHour.getTime() - i * 60 * 60 * 1000);
+    const endMs = bTime.getTime() + 60 * 60 * 1000;
+    const hours = String(bTime.getHours()).padStart(2, '0');
+    const label = `${hours}:00`;
+    buckets.push({
+      startMs: bTime.getTime(),
+      endMs,
+      label,
+      timestamp: bTime.toISOString(),
+      status2xx: 0,
+      status4xx: 0,
+      status5xx: 0,
+      durations: [],
+    });
+  }
+
+  // 3. Populate HTTP logs into buckets
+  for (const log of httpLogs) {
+    if (log.timestamp < since.getTime()) continue;
+    if (filter === 'bot') continue;
+    const bucket = buckets.find((b) => log.timestamp >= b.startMs && log.timestamp < b.endMs);
+    if (!bucket) continue;
+
+    if (log.status >= 200 && log.status < 400) bucket.status2xx++;
+    else if (log.status >= 400 && log.status < 500) bucket.status4xx++;
+    else if (log.status >= 500) bucket.status5xx++;
+
+    if (log.durationMs > 0) bucket.durations.push(log.durationMs);
+  }
+
+  // 4. Populate bot metrics from DB into buckets
+  if (filter !== 'http') {
+    for (const row of hourlyRows) {
+      const rowMs = new Date(row.bucketAt).getTime();
+      const bucket = buckets.find((b) => rowMs >= b.startMs && rowMs < b.endMs);
+      if (!bucket) continue;
+
+      const cnt = Number(row.count) || 0;
+      const dim = row.dimension || '';
+      const isError = dim.includes('outcome=failed') || row.metric.includes('failed');
+      const isClientErr = dim.includes('outcome=blocked') || dim.includes('outcome=unauthorized') || dim.includes('outcome=invalid');
+
+      if (isError) {
+        bucket.status5xx += cnt;
+      } else if (isClientErr) {
+        bucket.status4xx += cnt;
+      } else {
+        bucket.status2xx += cnt;
+      }
+
+      if (row.metric.endsWith('_duration_ms') && cnt > 0 && row.sumValue > 0) {
+        const avg = Math.round(row.sumValue / cnt);
+        bucket.durations.push(avg);
+        if (row.maxValue > 0) bucket.durations.push(row.maxValue);
+      }
+    }
+
+    for (const ev of eventRows) {
+      const evMs = new Date(ev.occurredAt).getTime();
+      const bucket = buckets.find((b) => evMs >= b.startMs && evMs < b.endMs);
+      if (!bucket) continue;
+
+      if (ev.durationMs && ev.durationMs > 0) {
+        bucket.durations.push(ev.durationMs);
+      }
+    }
+  }
+
+  function calcPercentile(arr: number[], p: number, defaultVal: number): number {
+    if (!arr.length) return defaultVal;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor((p / 100) * sorted.length)));
+    return sorted[idx]!;
+  }
+
+  // Convert buckets to series
+  const series = buckets.map((b) => {
+    const total = b.status2xx + b.status4xx + b.status5xx;
+    const p50 = b.durations.length ? calcPercentile(b.durations, 50, 15) : 0;
+    const p95 = b.durations.length ? calcPercentile(b.durations, 95, 30) : 0;
+    return {
+      label: b.label,
+      timestamp: b.timestamp,
+      status2xx: b.status2xx,
+      status4xx: b.status4xx,
+      status5xx: b.status5xx,
+      total,
+      p50,
+      p95,
+    };
+  });
+
+  // Calculate totals and summary
+  const total2xx = series.reduce((acc, s) => acc + s.status2xx, 0);
+  const total4xx = series.reduce((acc, s) => acc + s.status4xx, 0);
+  const total5xx = series.reduce((acc, s) => acc + s.status5xx, 0);
+  const totalRequests = total2xx + total4xx + total5xx;
+  const totalErrors = total4xx + total5xx;
+  const errorRate = totalRequests > 0 ? (totalErrors / totalRequests) * 100 : 0;
+
+  const activeSeries = series.filter((s) => s.total > 0 || s.p50 > 0);
+  const latestBucket = activeSeries.length > 0 ? activeSeries[activeSeries.length - 1] : null;
+  const latestP50 = latestBucket ? latestBucket.p50 : 0;
+  const latestP95 = latestBucket ? latestBucket.p95 : 0;
+
+  // 5. Aggregate Paths & Operations
+  const pathMap = new Map<string, { requests: number; errors: number; durations: number[]; isHttp: boolean }>();
+
+  const defaultPaths = [
+    { path: '/api/snapshot', isHttp: true },
+    { path: '/api/tasks', isHttp: true },
+    { path: '/api/users', isHttp: true },
+    { path: '/api/crons', isHttp: true },
+    { path: '/api/activity', isHttp: true },
+    { path: '/health', isHttp: true },
+    { path: 'bot.message_handler', isHttp: false },
+    { path: 'nlp.parse_task', isHttp: false },
+    { path: 'ai.gemini_generate', isHttp: false },
+    { path: 'reminder.dispatch', isHttp: false },
+    { path: 'morning_digest.dispatch', isHttp: false },
+  ];
+
+  for (const p of defaultPaths) {
+    pathMap.set(p.path, { requests: 0, errors: 0, durations: [], isHttp: p.isHttp });
+  }
+
+  for (const log of httpLogs) {
+    if (log.timestamp < since.getTime()) continue;
+    const cleanPath = log.path.split('?')[0] || log.path;
+    let entry = pathMap.get(cleanPath);
+    if (!entry) {
+      entry = { requests: 0, errors: 0, durations: [], isHttp: true };
+      pathMap.set(cleanPath, entry);
+    }
+    entry.requests++;
+    if (log.status >= 400) entry.errors++;
+    if (log.durationMs > 0) entry.durations.push(log.durationMs);
+  }
+
+  for (const ev of eventRows) {
+    const opKey = `${ev.component}.${ev.operation}`;
+    let entry = pathMap.get(opKey);
+    if (!entry) {
+      entry = { requests: 0, errors: 0, durations: [], isHttp: false };
+      pathMap.set(opKey, entry);
+    }
+    entry.requests++;
+    if (ev.outcome === 'failed') entry.errors++;
+    if (ev.durationMs && ev.durationMs > 0) entry.durations.push(ev.durationMs);
+  }
+
+  let paths = Array.from(pathMap.entries()).map(([path, data]) => {
+    const errRate = data.requests > 0 ? (data.errors / data.requests) * 100 : 0;
+    const p95 = calcPercentile(data.durations, 95, data.isHttp ? 15 : 45);
+    return {
+      path,
+      requests: data.requests,
+      errorRate: Number(errRate.toFixed(2)),
+      p95Latency: p95,
+      isHttp: data.isHttp,
+    };
+  });
+
+  if (filter === 'http') {
+    paths = paths.filter((p) => p.isHttp);
+  } else if (filter === 'bot') {
+    paths = paths.filter((p) => !p.isHttp);
+  }
+
+  paths.sort((a, b) => b.requests - a.requests);
+
+  return {
+    generatedAt: new Date(now).toISOString(),
+    filter,
+    summary: {
+      totalRequests,
+      errorRate: Number(errorRate.toFixed(2)),
+      latestP50,
+      latestP95,
+    },
+    series,
+    paths,
   };
 }
 
@@ -701,16 +965,7 @@ export function createDashboardHandler(options: {
   snapshot: () => Promise<unknown>;
   db?: any;
 }): (request: Request) => Promise<Response> {
-  return async (request: Request) => {
-    if (!isAuthorized(request, options.username, options.password)) {
-      const headers = secureHeaders('text/plain; charset=utf-8');
-      headers.set('www-authenticate', 'Basic realm="Todo Bot Monitoring", charset="UTF-8"');
-      return new Response('Authentication required', { status: 401, headers });
-    }
-
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-
+  const dispatch = async (request: Request, pathname: string, url: URL): Promise<Response> => {
     if (request.method === 'GET') {
       if (pathname === '/') {
         return new Response(DASHBOARD_HTML, { headers: secureHeaders('text/html; charset=utf-8') });
@@ -720,6 +975,27 @@ export function createDashboardHandler(options: {
       }
       if (pathname === '/dashboard.js') {
         return new Response(DASHBOARD_JS, { headers: secureHeaders('text/javascript; charset=utf-8') });
+      }
+      if (pathname === '/activity') {
+        return new Response(ACTIVITY_HTML, { headers: secureHeaders('text/html; charset=utf-8') });
+      }
+      if (pathname === '/activity.css') {
+        return new Response(ACTIVITY_CSS, { headers: secureHeaders('text/css; charset=utf-8') });
+      }
+      if (pathname === '/activity.js') {
+        return new Response(ACTIVITY_JS, { headers: secureHeaders('text/javascript; charset=utf-8') });
+      }
+      if (pathname === '/api/activity') {
+        try {
+          const filter = url.searchParams.get('filter') || 'all';
+          const activity = await buildDashboardActivity(options.db, filter);
+          return Response.json(activity, { headers: secureHeaders('application/json; charset=utf-8') });
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_BUILD_ACTIVITY' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
       }
       if (pathname === '/api/snapshot') {
         try {
@@ -933,7 +1209,7 @@ export function createDashboardHandler(options: {
         }
       }
 
-      if (pathname === '/api/snapshot') {
+      if (pathname === '/api/snapshot' || pathname === '/api/activity') {
         const headers = secureHeaders('text/plain; charset=utf-8');
         headers.set('allow', 'GET');
         return new Response('Method not allowed', { status: 405, headers });
@@ -945,6 +1221,32 @@ export function createDashboardHandler(options: {
     const headers = secureHeaders('text/plain; charset=utf-8');
     headers.set('allow', 'GET, POST');
     return new Response('Method not allowed', { status: 405, headers });
+  };
+
+  return async (request: Request) => {
+    const startTime = performance.now();
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+
+    if (!isAuthorized(request, options.username, options.password)) {
+      recordHttpRequest(pathname, 401, Math.round(performance.now() - startTime));
+      const headers = secureHeaders('text/plain; charset=utf-8');
+      headers.set('www-authenticate', 'Basic realm="Todo Bot Monitoring", charset="UTF-8"');
+      return new Response('Authentication required', { status: 401, headers });
+    }
+
+    let recordedStatus = 200;
+    try {
+      const response = await dispatch(request, pathname, url);
+      recordedStatus = response.status;
+      return response;
+    } catch (err) {
+      recordedStatus = 500;
+      throw err;
+    } finally {
+      const durationMs = Math.round(performance.now() - startTime);
+      recordHttpRequest(pathname, recordedStatus, durationMs);
+    }
   };
 }
 

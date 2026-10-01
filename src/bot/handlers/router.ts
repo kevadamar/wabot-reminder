@@ -35,7 +35,49 @@ import {
   screenAndExtractImageWithAI,
   saveAttachmentToStorage,
 } from '../../services/media.js';
+import { and, eq } from 'drizzle-orm';
+import { tasks } from '../../db/schema.js';
 import { jidNormalizedUser, downloadMediaMessage } from '@whiskeysockets/baileys';
+
+/**
+ * Resolves a task from a quoted message by matching stanzaId in task_messages,
+ * or extracting [ID: <number>] from quoted text as a fallback.
+ */
+async function resolveQuotedTask(
+  db: any,
+  remoteJid: string,
+  stanzaId?: string,
+  quotedText?: string
+): Promise<{ task: any | null; isExplicitQuote: boolean }> {
+  if (!stanzaId) {
+    return { task: null, isExplicitQuote: false };
+  }
+
+  // 1. Direct match in task_messages table
+  const matched = await findTaskByMessageId(db, stanzaId);
+  if (matched && matched.userJid === remoteJid) {
+    return { task: matched, isExplicitQuote: true };
+  }
+
+  // 2. Fallback: Extract [ID: 123] or #123 from quoted text if present
+  if (quotedText) {
+    const idMatch = quotedText.match(/(?:\[ID:\s*(\d+)\]|ID:\s*(\d+)|#(\d+))/i);
+    const rawId = idMatch ? (idMatch[1] || idMatch[2] || idMatch[3]) : null;
+    const extractedId = rawId ? parseInt(rawId, 10) : null;
+    if (extractedId && !isNaN(extractedId)) {
+      const taskRows = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, extractedId), eq(tasks.userJid, remoteJid)))
+        .limit(1);
+      if (taskRows[0]) {
+        return { task: taskRows[0], isExplicitQuote: true };
+      }
+    }
+  }
+
+  return { task: null, isExplicitQuote: true };
+}
 
 export function formatDateTime(date: Date, timezone = 'Asia/Jakarta'): string {
   try {
@@ -239,6 +281,13 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     msg.message.documentMessage?.contextInfo;
   const isForwarded = Boolean(contextInfo?.isForwarded);
   const stanzaId = contextInfo?.stanzaId;
+  const quotedMessage = contextInfo?.quotedMessage;
+  const quotedText =
+    quotedMessage?.conversation ||
+    quotedMessage?.extendedTextMessage?.text ||
+    quotedMessage?.imageMessage?.caption ||
+    quotedMessage?.documentMessage?.caption ||
+    '';
 
   // 1. Check user permission
   const user = await ensureUserSettings(db, remoteJid, msg.pushName || null, false);
@@ -723,9 +772,12 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       ? formatDateTime(res.oldDeadline, user.timezone)
       : 'Belum ada jadwal';
 
-    await sock.sendMessage(remoteJid, {
+    const reply = await sock.sendMessage(remoteJid, {
       text: `🔄 *Jadwal Berhasil Diperbarui!* [ID: ${taskId}]\n📝 Tugas: *${res.updatedTask.task}*\n⏰ Waktu lama: ${oldDeadlineStr}\n⏰ Waktu baru: *${deadlineStr}*\n\nPengingat otomatis telah disesuaikan kembali. ✨`,
     });
+    if (reply?.key?.id) {
+      await linkTaskMessage(db, taskId, reply.key.id);
+    }
     return;
   }
 
@@ -847,7 +899,14 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   if (rescheduleMatch || renameMatch || subtaskReplyMatch) {
     let targetTask = null;
     if (stanzaId) {
-      targetTask = await findTaskByMessageId(db, stanzaId);
+      const resolved = await resolveQuotedTask(db, remoteJid, stanzaId, quotedText);
+      if (resolved.isExplicitQuote && !resolved.task) {
+        await sock.sendMessage(remoteJid, {
+          text: '⚠️ Pesan yang kamu balas tidak terhubung ke tugas aktif nih. Mau mengubah tugas yang mana? Coba sebutkan ID tugasnya (contoh: *reschedule <ID> <waktu>* atau *ubah tugas: <judul baru>* sambil balas pesan tugasnya), atau balas langsung pesan tugas yang aktif ya! ✨',
+        });
+        return;
+      }
+      targetTask = resolved.task;
     }
     if (!targetTask) {
       const activeList = await listActiveTasks(db, remoteJid);
@@ -858,7 +917,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
     if (!targetTask) {
       await sock.sendMessage(remoteJid, {
-        text: '⚠️ Tidak menemukan tugas yang ingin diubah. Balas (quote) pesan tugas terkait atau gunakan perintah spesifik.',
+        text: '⚠️ Tidak menemukan tugas yang ingin diubah. Balas (quote) pesan tugas terkait atau gunakan perintah spesifik dengan ID tugas.',
       });
       return;
     }
@@ -901,9 +960,12 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
         const oldDeadlineStr = res.oldDeadline
           ? formatDateTime(res.oldDeadline, user.timezone)
           : 'Belum ada jadwal';
-        await sock.sendMessage(remoteJid, {
+        const reply = await sock.sendMessage(remoteJid, {
           text: `🔄 *Jadwal Berhasil Diperbarui!*\n📝 Tugas: *${targetTask.task}*\n⏰ Waktu lama: ${oldDeadlineStr}\n⏰ Waktu baru: *${deadlineStr}*\n\nPengingat otomatis telah disesuaikan kembali. ✨`,
         });
+        if (reply?.key?.id) {
+          await linkTaskMessage(db, targetTask.id, reply.key.id);
+        }
         return;
       }
     }
@@ -919,9 +981,12 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       });
 
       if (res) {
-        await sock.sendMessage(remoteJid, {
+        const reply = await sock.sendMessage(remoteJid, {
           text: `✏️ *Nama Tugas Berhasil Diperbarui!*\n📝 Judul baru: *${newTitle}*`,
         });
+        if (reply?.key?.id) {
+          await linkTaskMessage(db, targetTask.id, reply.key.id);
+        }
         return;
       }
     }
@@ -965,7 +1030,14 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   if (isDoneReply || isCancelReply) {
     let targetTask = null;
     if (stanzaId) {
-      targetTask = await findTaskByMessageId(db, stanzaId);
+      const resolved = await resolveQuotedTask(db, remoteJid, stanzaId, quotedText);
+      if (resolved.isExplicitQuote && !resolved.task) {
+        await sock.sendMessage(remoteJid, {
+          text: '⚠️ Pesan yang kamu balas tidak terhubung ke tugas aktif nih. Mau menyelesaikan tugas yang mana? Coba ketik *selesai <nomor_ID>* (contoh: _selesai 2_), atau balas langsung pesan tugas yang aktif ya! ✨',
+        });
+        return;
+      }
+      targetTask = resolved.task;
     }
     if (!targetTask) {
       targetTask = await getLatestRemindedTask(db, remoteJid, 120);
@@ -1007,9 +1079,15 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   // Check if quoted message belongs to a pending (active) task
   let quotedPendingTask = null;
   if (stanzaId) {
-    const matched = await findTaskByMessageId(db, stanzaId);
-    if (matched && matched.status === 'pending') {
-      quotedPendingTask = matched;
+    const resolved = await resolveQuotedTask(db, remoteJid, stanzaId, quotedText);
+    if (resolved.isExplicitQuote && !resolved.task) {
+      await sock.sendMessage(remoteJid, {
+        text: '⚠️ Pesan yang kamu balas tidak terhubung ke tugas aktif nih. Mau perpanjang waktu tugas yang mana? Sebutkan ID tugasnya (contoh: *reschedule <ID> <waktu>*), atau balas langsung pesan tugasnya ya! ✨',
+      });
+      return;
+    }
+    if (resolved.task && resolved.task.status === 'pending') {
+      quotedPendingTask = resolved.task;
     }
   }
 
@@ -1081,12 +1159,12 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   // 12. Check if user is replying with a deadline for an existing pending_deadline task
   let pendingTask = null;
   if (stanzaId) {
-    const matched = await findTaskByMessageId(db, stanzaId);
-    if (matched && matched.status === 'pending_deadline') {
-      pendingTask = matched;
+    const resolved = await resolveQuotedTask(db, remoteJid, stanzaId, quotedText);
+    if (resolved.task && resolved.task.status === 'pending_deadline') {
+      pendingTask = resolved.task;
     }
   }
-  if (!pendingTask) {
+  if (!pendingTask && !stanzaId) {
     pendingTask = await getLatestPendingDeadlineTask(db, remoteJid, 15);
   }
 
@@ -1157,7 +1235,21 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       await sock.sendMessage(remoteJid, {
         text: `Halo! 👋 Aku asisten pengingat tugasmu.\n\nAda tugas yang ingin dicatat hari ini? Kamu bisa ketik langsung (contoh: _"Besok jam 2 siang rapat tim"_), atau ketik *help* untuk melihat panduan ya! ✨`,
       });
+      return;
     }
+
+    if (/^(ok|oke|okee|siap|siapp|sip|sipp|mantap|mantabb|makasih|terima kasih|thanks|thx|tengkyu|yoi|yoii)\b/i.test(trimmedText)) {
+      console.log('👍 [Respon Santai] Membalas konfirmasi/terima kasih.');
+      await sock.sendMessage(remoteJid, {
+        text: `Sip brad/kak! 😉 Kalau ada to-do list atau tugas baru yang mau dicatat atau diingatkan, langsung kirim aja ke sini ya! ✨`,
+      });
+      return;
+    }
+
+    console.log('💬 [Non-Task / Chit-Chat] Membalas pesan santai dan mengarahkan ke tugas.');
+    await sock.sendMessage(remoteJid, {
+      text: `Hehe santai dulu brad/kak! 😄 Belum nangkep ada tugas atau deadline dari pesan kamu tadi nih.\n\nAku asisten pengingat tugas & to-do list. Mau catat tugas baru (contoh: _"nanti jam 4 sore jemput adik"_), cek daftar tugas (*list*), atau butuh bantuan (*help*)? Langsung kasih tahu aku ya! ✨`,
+    });
     return;
   }
 
