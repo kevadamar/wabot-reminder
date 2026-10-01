@@ -198,7 +198,7 @@ describe('Dashboard Overdue Tasks Section & Manual Reminder Trigger', () => {
     expect(sentMessages.length).toBe(1);
     expect(sentMessages[0]?.jid).toBe(testUserJid);
     expect(sentMessages[0]?.content?.text).toContain('Presentasi Bisnis Mendesak');
-    expect(sentMessages[0]?.content?.text).toContain('Halo kak Budi!');
+    expect(sentMessages[0]?.content?.text).toContain('Halo Budi!');
     expect(sentMessages[0]?.content?.text.toLowerCase()).toMatch(/admin|mager|anti-mager|rebahan/);
 
     // 2. Verify task state updated (reminded set to 2 for overdue)

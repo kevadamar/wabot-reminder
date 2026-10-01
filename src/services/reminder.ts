@@ -159,7 +159,7 @@ const OVERDUE_FALLBACKS = [
 
 const MANUAL_TRIGGER_FALLBACKS = [
   (task: string, deadline: string, name?: string) => {
-    const greeting = name ? `Halo kak ${name}! 👋` : 'Halo kak! 👋';
+    const greeting = name ? `Halo ${name}! 👋` : 'Halo! 👋';
     return (
       `${greeting}\n\n` +
       `Admin colek dikit nih… Hayoo, jangan-jangan jurus magernya lagi aktif ya? 🤭\n` +
@@ -174,7 +174,7 @@ const MANUAL_TRIGGER_FALLBACKS = [
     );
   },
   (task: string, deadline: string, name?: string) => {
-    const greeting = name ? `Halo kak ${name}! 🚨` : 'Halo kak! 🚨';
+    const greeting = name ? `Halo ${name}! 🚨` : 'Halo! 🚨';
     return (
       `${greeting}\n\n` +
       `Alarm anti-mager dari Admin bunyi nih! Katanya mau produktif dan sat-set, masa kalah sama rasa mager? Hehe 😉\n` +
@@ -189,14 +189,14 @@ const MANUAL_TRIGGER_FALLBACKS = [
     );
   },
   (task: string, deadline: string, name?: string) => {
-    const greeting = name ? `Halo kak ${name}! ✨` : 'Halo kak! ✨';
+    const greeting = name ? `Halo ${name}! ✨` : 'Halo! ✨';
     return (
       `${greeting}\n\n` +
       `Admin mampir khusus buat suntik energi ekstra! Jangan biarkan mager mengambil alih hari baikmu ya 💪\n` +
       `Ada rencana penting yang masih nungguin kamu nih:\n\n` +
       `📝 *"${task}"*\n` +
       `⏰ Target: *${deadline}*\n\n` +
-      `*Mau diapain nih kak?*\n` +
+      `*Mau diapain nih?*\n` +
       `- Balas *selesai* jika sudah tuntas ✅\n` +
       `- Balas *1* / *2* / *3* kalau mau diperpanjang waktunya ⏱️\n` +
       `- Balas *batal* kalau mau dilepas ❌\n\n` +
@@ -204,7 +204,7 @@ const MANUAL_TRIGGER_FALLBACKS = [
     );
   },
   (task: string, deadline: string, name?: string) => {
-    const greeting = name ? `Halo kak ${name}! ☕` : 'Halo kak! ☕';
+    const greeting = name ? `Halo ${name}! ☕` : 'Halo! ☕';
     return (
       `${greeting}\n\n` +
       `Admin deteksi ada sinyal-sinyal rebahan berkepanjangan nih 🤭 Yuk bangun dan segarkan fokus sebentar!\n` +
@@ -240,7 +240,7 @@ export async function generateReminderMessage(
   const isManual = options?.isManualTrigger ?? false;
   const rawName = options?.userName?.trim();
   const userName = rawName || '';
-  const userGreeting = userName ? `kak ${userName}` : 'kak';
+  const greetingTarget = userName ? `Halo ${userName}!` : 'Halo!';
 
   const parentContext = parentTaskTitle
     ? `Tugas ini adalah bagian dari proyek: "${parentTaskTitle}". Sertakan konteks proyek induk dan sub-tugasnya secara jelas.\n`
@@ -250,7 +250,7 @@ export async function generateReminderMessage(
   if (isManual) {
     statusContext = `PENGINGAT KHUSUS/MANUAL YANG DITRIGGER ADMIN DARI DASHBOARD karena tugas sudah melewati deadline.
 Tujuan Utama Pesan Ini:
-- Sapa pengguna secara hangat dan personal: "Halo ${userGreeting}!".
+- Sapa pengguna secara hangat dan personal: "${greetingTarget}".
 - Paraphrase secara menarik, seru, dan playful bahwa Admin hadir untuk mengingatkan dengan nada menggoda/mencolek santai karena mendeteksi rasa mager / malas yang mulai datang (contoh nuansa: "Admin colek dikit nih… hayoo jangan-jangan jurus magernya lagi aktif ya? 🤭" atau "Alarm anti-mager dari Admin bunyi nih! Masa kalah sama rebahan? Hehe 😉").
 - Berikan suntikan dorongan dan semangat yang memicu pengguna langsung tersenyum dan tergerak menyelesaikannya.
 - JANGAN terdengar kaku, galak, menekan, atau seperti bos pemarah. Tunjukkan kepedulian yang bersahabat dan penuh energi positif!`;

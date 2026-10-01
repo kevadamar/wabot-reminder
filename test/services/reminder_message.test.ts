@@ -74,7 +74,7 @@ describe('Seam 2: Dynamic & Human Reminder Messaging', () => {
         generateContent: async (payload: any) => {
           capturedPayload = payload;
           return {
-            text: 'Halo kak Keva! 👋 Admin colek dikit nih… jangan biarkan jurus mager menang ya! Coba intip tugas *"Siapkan bahan presentasi roadmap"*, yuk tuntaskan sekarang! (Balas selesai / 1/2/3 / batal)',
+            text: 'Halo Keva! 👋 Admin colek dikit nih… jangan biarkan jurus mager menang ya! Coba intip tugas *"Siapkan bahan presentasi roadmap"*, yuk tuntaskan sekarang! (Balas selesai / 1/2/3 / batal)',
           };
         },
       },
@@ -89,8 +89,8 @@ describe('Seam 2: Dynamic & Human Reminder Messaging', () => {
       { userName: 'Keva', isManualTrigger: true }
     );
 
-    expect(msg).toContain('Halo kak Keva!');
-    expect(capturedPayload.contents).toContain('Halo kak Keva!');
+    expect(msg).toContain('Halo Keva!');
+    expect(capturedPayload.contents).toContain('Halo Keva!');
     expect(capturedPayload.contents).toContain('PENGINGAT KHUSUS/MANUAL YANG DITRIGGER ADMIN DARI DASHBOARD');
     expect(capturedPayload.contents.toLowerCase()).toContain('mager');
   });
@@ -105,13 +105,13 @@ describe('Seam 2: Dynamic & Human Reminder Messaging', () => {
       { userName: 'Keva', isManualTrigger: true }
     );
 
-    expect(msgWithName).toContain('Halo kak Keva!');
+    expect(msgWithName).toContain('Halo Keva!');
     expect(msgWithName).toContain('Siapkan bahan presentasi roadmap');
     expect(msgWithName.toLowerCase()).toMatch(/admin|mager|anti-mager|rebahan/);
     expect(msgWithName).toContain('selesai');
     expect(msgWithName).toContain('batal');
 
-    // Without user name, should default to 'Halo kak!'
+    // Without user name, should default to 'Halo!'
     const msgWithoutName = await generateReminderMessage(
       dummyTask,
       true,
@@ -120,8 +120,9 @@ describe('Seam 2: Dynamic & Human Reminder Messaging', () => {
       null,
       { userName: null, isManualTrigger: true }
     );
-    expect(msgWithoutName).toContain('Halo kak!');
-    expect(msgWithoutName).not.toContain('Halo kak null');
+    expect(msgWithoutName).toContain('Halo!');
+    expect(msgWithoutName).not.toContain('Halo kak');
+    expect(msgWithoutName).not.toContain('Halo null');
     expect(msgWithoutName).toContain('Siapkan bahan presentasi roadmap');
   });
 });
