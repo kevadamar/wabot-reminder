@@ -75,7 +75,10 @@ export const SETTINGS_HTML = `<!doctype html>
           </div>
           <div class="whatsapp-bubble">
             <p>
-              Hai, makasih loh sudah mulai chat duluan. Tapi maaf kalau slow response ya, karena admin mungkin saja sedang rebahan manja, kamu bisa menghubungi admin melalui DM instagram <strong id="preview-handle" class="highlight-handle">@kevadamar</strong> jika pesan kamu bertepuk sebelah tangan..ehh maksudnya tidak terbalaskan hehe
+              Hai! Senang banget deh kamu udah chat ke sini ✨👋<br><br>
+              Tapi maaf ya kalau responnya agak selow, adminnya mungkin lagi sibuk recharge energi atau rebahan manja dulu nih 🛋️☕<br><br>
+              Daripada pesan kamu menggantung atau bertepuk sebelah tangan (eh maksudnya kelamaan nunggu hehe 🙈), mending langsung colek admin lewat DM Instagram <strong id="preview-handle" class="highlight-handle">@kevadamar</strong> ya!<br><br>
+              Pasti dibalas dan disambut hangat kok. Sampai ketemu di DM ya! 🙌✨
             </p>
           </div>
         </div>

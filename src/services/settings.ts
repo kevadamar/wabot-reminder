@@ -53,3 +53,16 @@ export async function setAdminInstagram(db: any, handle: string): Promise<string
   await setBotSetting(db, 'admin_instagram', cleaned);
   return cleaned;
 }
+
+/**
+ * Generates an engaging, fun, and warm WhatsApp message for unauthorized contacts.
+ */
+export function buildRestrictedAccessMessage(igHandle: string): string {
+  return `Hai! Senang banget deh kamu udah chat ke sini ✨👋
+
+Tapi maaf ya kalau responnya agak selow, adminnya mungkin lagi sibuk recharge energi atau rebahan manja dulu nih 🛋️☕
+
+Daripada pesan kamu menggantung atau bertepuk sebelah tangan (eh maksudnya kelamaan nunggu hehe 🙈), mending langsung colek admin lewat DM Instagram *${igHandle}* ya!
+
+Pasti dibalas dan disambut hangat kok. Sampai ketemu di DM ya! 🙌✨`;
+}
