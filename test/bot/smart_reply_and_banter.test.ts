@@ -201,4 +201,155 @@ describe('Smart Quoted Reply & Friendly Banter', () => {
     expect(sentMessages[0] || '').toContain('santai dulu');
     expect(sentMessages[0] || '').toContain('to-do list');
   });
+
+  it('should not auto-resolve any task when sending bare selesai without quote, instead explaining and listing active tasks', async () => {
+    const task1 = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Kerjakan Laporan Keuangan',
+      status: 'pending',
+    });
+    const task2 = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Belanja Mingguan',
+      status: 'pending',
+    });
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_RESP' } };
+      },
+    };
+
+    // User types bare "selesai" without quoting any message
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'MSG_BARE_SELESAI' },
+      message: { conversation: 'selesai' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Mau menyelesaikan tugas yang mana nih?');
+    expect(sentMessages[0]).toContain(`selesai <nomor_ID>`);
+    expect(sentMessages[0]).toContain(`*[ID: ${task1.id}]* Kerjakan Laporan Keuangan`);
+    expect(sentMessages[0]).toContain(`*[ID: ${task2.id}]* Belanja Mingguan`);
+
+    // Verify neither task was resolved!
+    const activeTasks = await db.select().from(tasks);
+    expect(activeTasks.every((t) => t.status === 'pending')).toBe(true);
+  });
+
+  it('should not auto-cancel any task when sending bare batal without quote, instead explaining and listing active tasks', async () => {
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Diskusi Tim Proyek',
+      status: 'pending',
+    });
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_RESP' } };
+      },
+    };
+
+    // User types bare "batal" without quoting
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'MSG_BARE_BATAL' },
+      message: { conversation: 'batal' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Mau membatalkan tugas yang mana nih?');
+    expect(sentMessages[0]).toContain(`batal <nomor_ID>`);
+    expect(sentMessages[0]).toContain(`*[ID: ${task.id}]* Diskusi Tim Proyek`);
+
+    // Verify task is still pending
+    const checkTask = (await db.select().from(tasks)).find((t) => t.id === task.id);
+    expect(checkTask?.status).toBe('pending');
+  });
+
+  it('should inform user when sending bare selesai or batal and there are no active tasks', async () => {
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_RESP' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'MSG_SELESAI_EMPTY' },
+      message: { conversation: 'selesai' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('tidak memiliki tugas aktif untuk diselesaikan');
+
+    sentMessages.length = 0;
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'MSG_BATAL_EMPTY' },
+      message: { conversation: 'batal' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('tidak memiliki tugas aktif untuk dibatalkan');
+  });
+
+  it('should not auto-extend any task when sending bare buat lagi without quote, instead explaining and listing active tasks', async () => {
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Siapkan Slide Pitching',
+      status: 'pending',
+    });
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_RESP' } };
+      },
+    };
+
+    // User types "buat lagi" without quoting
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'MSG_BUAT_LAGI' },
+      message: { conversation: 'buat lagi' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Mau perpanjang waktu tugas yang mana nih?');
+    expect(sentMessages[0]).toContain(`reschedule <ID> <waktu_baru>`);
+    expect(sentMessages[0]).toContain(`*[ID: ${task.id}]* Siapkan Slide Pitching`);
+
+    // Verify task deadline was not changed or corrupted
+    const checkTask = (await db.select().from(tasks)).find((t) => t.id === task.id);
+    expect(checkTask?.status).toBe('pending');
+  });
+
+  it('should guide user when sending explicit quick extension +30 menit without quote', async () => {
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'Coding Unit Test',
+      status: 'pending',
+    });
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_RESP' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'MSG_EXT_30M' },
+      message: { conversation: '+30 menit' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Mau menambah waktu untuk tugas yang mana nih?');
+    expect(sentMessages[0]).toContain(`reschedule ${task.id} 30 menit lagi`);
+  });
 });

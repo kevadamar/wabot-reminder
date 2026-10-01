@@ -9,7 +9,6 @@ import {
   listActiveTasks,
   updateTaskDeadline,
   getLatestPendingDeadlineTask,
-  getLatestRemindedTask,
   rescheduleTask,
   renameTask,
   createSubtask,
@@ -1039,14 +1038,36 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       }
       targetTask = resolved.task;
     }
-    if (!targetTask) {
-      targetTask = await getLatestRemindedTask(db, remoteJid, 120);
-    }
+
     if (!targetTask) {
       const activeList = await listActiveTasks(db, remoteJid);
-      if (activeList.length === 1 && activeList[0]) {
-        targetTask = activeList[0];
+      const actionWord = isDoneReply ? 'menyelesaikan' : 'membatalkan';
+      const cmdWord = isDoneReply ? 'selesai' : 'batal';
+      const emojiIcon = isDoneReply ? '✅' : '❌';
+
+      if (activeList.length === 0) {
+        await sock.sendMessage(remoteJid, {
+          text: `Saat ini kamu tidak memiliki tugas aktif untuk di${actionWord === 'menyelesaikan' ? 'selesaikan' : 'batalkan'}. Semuanya sudah beres! 🎉`,
+        });
+        return;
       }
+
+      let msg = `Mau ${actionWord} tugas yang mana nih? 😊\n\n`;
+      const exampleId = activeList[0]?.id ?? 1;
+      msg += `Biar nggak salah tugas, sebutkan nomor ID tugasnya atau balas (quote) langsung pesan pengingat tugasnya ya:\n`;
+      msg += `• Ketik: *${cmdWord} <nomor_ID>* (contoh: *${cmdWord} ${exampleId}*)\n`;
+      msg += `• Atau balas (quote) pesan tugas terkait lalu ketik *${cmdWord}* / emoji ${emojiIcon}\n\n`;
+      msg += `📋 *Daftar Tugas Aktif Kamu:*\n`;
+      activeList.slice(0, 10).forEach((t) => {
+        const deadlineStr = t.deadline ? ` _(Deadline: ${formatDateTime(t.deadline, user.timezone)})_` : '';
+        msg += `• *[ID: ${t.id}]* ${t.task}${deadlineStr}\n`;
+      });
+      if (activeList.length > 10) {
+        msg += `_...dan ${activeList.length - 10} tugas lainnya (ketik *list* untuk melihat semua)._\n`;
+      }
+
+      await sock.sendMessage(remoteJid, { text: msg.trim() });
+      return;
     }
 
     if (targetTask && targetTask.status !== 'resolved' && targetTask.status !== 'cancelled') {
@@ -1074,7 +1095,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   // 11.5. Quick extension or prompt for active/overdue tasks
   const isQuickExtension =
     /^(1|1️⃣|\+30\s*(?:menit|mnt|m)|30\s*(?:menit|mnt|m)|2|2️⃣|\+1\s*(?:jam|h)|1\s*jam|60\s*(?:menit|mnt|m)|3|3️⃣|besok|besok\s*pagi|besok\s*09:00)$/i.test(trimmedText);
-  const isExtendPrompt = /^(buat\s*lagi(?:\s*task)?|jadwal\s*ulang|tambah\s*waktu|perpanjang)$/i.test(trimmedText);
+  const isExtendPrompt = /^(buat\s*lagi(?:\s*task)?|jadwal\s*ulang|tambah\s*waktu|perpanjang|reschedule)$/i.test(trimmedText);
 
   // Check if quoted message belongs to a pending (active) task
   let quotedPendingTask = null;
@@ -1091,67 +1112,98 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     }
   }
 
-  // Handle if user quoted an active task OR if user typed quick extension without quoting (and no pending_deadline task exists)
-  if (quotedPendingTask || isQuickExtension || isExtendPrompt) {
-    let targetPendingTask = quotedPendingTask;
+  // If user sends extend prompt ("buat lagi", "jadwal ulang", "perpanjang", etc.) without quoting an active task
+  if (isExtendPrompt && !quotedPendingTask) {
+    const activeList = await listActiveTasks(db, remoteJid);
+    if (activeList.length === 0) {
+      await sock.sendMessage(remoteJid, {
+        text: 'Saat ini kamu tidak memiliki tugas aktif untuk dijadwalkan ulang. Mau catat tugas baru? Ketik langsung tugasmu ya! ✨',
+      });
+      return;
+    }
 
-    // If not quoted, only look for pending task if no pending_deadline task is waiting for input
-    if (!targetPendingTask) {
-      const pendingDeadlineWaiting = await getLatestPendingDeadlineTask(db, remoteJid, 15);
-      if (!pendingDeadlineWaiting) {
-        targetPendingTask =
-          (await getLatestRemindedTask(db, remoteJid, 120)) ||
-          (await listActiveTasks(db, remoteJid)).find((t) => t.status === 'pending') ||
-          null;
+    let msg = `Mau perpanjang waktu tugas yang mana nih? 😊\n\n`;
+    const exampleId = activeList[0]?.id ?? 1;
+    msg += `Biar tepat sasaran, sebutkan nomor ID tugasnya atau balas (quote) langsung pesan pengingat tugasnya ya:\n`;
+    msg += `• Ketik: *reschedule <ID> <waktu_baru>* (contoh: *reschedule ${exampleId} besok jam 10 pagi*)\n`;
+    msg += `• Atau balas (quote) pesan tugas terkait lalu ketik waktu tambahannya (misal: *1* untuk +30 menit, atau *ubah waktu: 15:00*)\n\n`;
+    msg += `📋 *Daftar Tugas Aktif Kamu:*\n`;
+    activeList.slice(0, 10).forEach((t) => {
+      const deadlineStr = t.deadline ? ` _(Deadline: ${formatDateTime(t.deadline, user.timezone)})_` : '';
+      msg += `• *[ID: ${t.id}]* ${t.task}${deadlineStr}\n`;
+    });
+    if (activeList.length > 10) {
+      msg += `_...dan ${activeList.length - 10} tugas lainnya (ketik *list* untuk melihat semua)._\n`;
+    }
+
+    await sock.sendMessage(remoteJid, { text: msg.trim() });
+    return;
+  }
+
+  // Handle explicit extension time (+30 menit, +1 jam, dll) without quoting
+  const isExplicitQuickExtension =
+    /^(?:\+30\s*(?:menit|mnt|m)|\+1\s*(?:jam|h)|60\s*(?:menit|mnt|m))$/i.test(trimmedText);
+  if (isExplicitQuickExtension && !quotedPendingTask) {
+    const activeList = await listActiveTasks(db, remoteJid);
+    if (activeList.length === 0) {
+      await sock.sendMessage(remoteJid, {
+        text: 'Saat ini kamu tidak memiliki tugas aktif untuk diperpanjang. Ketik tugas barumu langsung ya! ✨',
+      });
+      return;
+    }
+    const exampleId = activeList[0]?.id ?? 1;
+    await sock.sendMessage(remoteJid, {
+      text: `Mau menambah waktu untuk tugas yang mana nih? 😊 Balas (quote) langsung pesan pengingat tugasnya, atau ketik *reschedule <nomor_ID> <waktu>* (contoh: *reschedule ${exampleId} 30 menit lagi*) ya! ✨`,
+    });
+    return;
+  }
+
+  // Handle if user quoted an active task to extend/reschedule
+  if (quotedPendingTask) {
+    if (isExtendPrompt) {
+      await sock.sendMessage(remoteJid, {
+        text: `Mau perpanjang berapa lama untuk tugas *"${quotedPendingTask.task}"* agar tidak ke-skip? 😊\n\n1️⃣ Balas *1* (+30 menit)\n2️⃣ Balas *2* (+1 jam)\n3️⃣ Balas *3* (besok jam 09:00)\n\nAtau balas *ubah waktu: <waktu baru>* ✨`,
+      });
+      return;
+    }
+
+    let newDeadline: Date | null = null;
+    const now = new Date();
+
+    if (/^(1|1️⃣|\+30\s*(?:menit|mnt|m)|30\s*(?:menit|mnt|m))$/i.test(trimmedText)) {
+      newDeadline = new Date(now.getTime() + 30 * 60 * 1000);
+    } else if (/^(2|2️⃣|\+1\s*(?:jam|h)|1\s*jam|60\s*(?:menit|mnt|m))$/i.test(trimmedText)) {
+      newDeadline = new Date(now.getTime() + 60 * 60 * 1000);
+    } else if (/^(3|3️⃣|besok|besok\s*pagi|besok\s*09:00)$/i.test(trimmedText)) {
+      const parsed = parseLocalTask('besok jam 09:00', now, user.timezone);
+      newDeadline = parsed.deadline || new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    } else {
+      // Direct temporal expression on quoted task without "ubah waktu:" prefix
+      const parsed = parseLocalTask(trimmedText, now, user.timezone);
+      if (parsed.deadline && (!parsed.taskTitle || parsed.taskTitle.trim() === '')) {
+        newDeadline = parsed.deadline;
       }
     }
 
-    if (targetPendingTask) {
-      if (isExtendPrompt) {
-        await sock.sendMessage(remoteJid, {
-          text: `Mau perpanjang berapa lama untuk tugas *"${targetPendingTask.task}"* agar tidak ke-skip? 😊\n\n1️⃣ Balas *1* (+30 menit)\n2️⃣ Balas *2* (+1 jam)\n3️⃣ Balas *3* (besok jam 09:00)\n\nAtau balas *ubah waktu: <waktu baru>* ✨`,
+    if (newDeadline) {
+      const res = await rescheduleTask(db, {
+        taskId: quotedPendingTask.id,
+        userJid: remoteJid,
+        newDeadline,
+        leadMinutes: user.leadReminderMinutes,
+        now,
+        rawInput: trimmedText,
+      });
+
+      if (res) {
+        const deadlineStr = formatDateTime(newDeadline, user.timezone);
+        const reply = await sock.sendMessage(remoteJid, {
+          text: `⏱️ *Waktu Ekstra Ditambahkan!*\n📝 Tugas: *${quotedPendingTask.task}*\n⏰ Deadline baru: *${deadlineStr}*\n\nJadwal pengingat otomatis telah diaktifkan kembali agar tugasmu tidak terlewat. Semangat! ✨`,
         });
+        if (reply?.key?.id) {
+          await linkTaskMessage(db, quotedPendingTask.id, reply.key.id);
+        }
         return;
-      }
-
-      let newDeadline: Date | null = null;
-      const now = new Date();
-
-      if (/^(1|1️⃣|\+30\s*(?:menit|mnt|m)|30\s*(?:menit|mnt|m))$/i.test(trimmedText)) {
-        newDeadline = new Date(now.getTime() + 30 * 60 * 1000);
-      } else if (/^(2|2️⃣|\+1\s*(?:jam|h)|1\s*jam|60\s*(?:menit|mnt|m))$/i.test(trimmedText)) {
-        newDeadline = new Date(now.getTime() + 60 * 60 * 1000);
-      } else if (/^(3|3️⃣|besok|besok\s*pagi|besok\s*09:00)$/i.test(trimmedText)) {
-        const parsed = parseLocalTask('besok jam 09:00', now, user.timezone);
-        newDeadline = parsed.deadline || new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      } else if (stanzaId) {
-        // Direct temporal expression on quoted task without "ubah waktu:" prefix
-        const parsed = parseLocalTask(trimmedText, now, user.timezone);
-        if (parsed.deadline && (!parsed.taskTitle || parsed.taskTitle.trim() === '')) {
-          newDeadline = parsed.deadline;
-        }
-      }
-
-      if (newDeadline) {
-        const res = await rescheduleTask(db, {
-          taskId: targetPendingTask.id,
-          userJid: remoteJid,
-          newDeadline,
-          leadMinutes: user.leadReminderMinutes,
-          now,
-          rawInput: trimmedText,
-        });
-
-        if (res) {
-          const deadlineStr = formatDateTime(newDeadline, user.timezone);
-          const reply = await sock.sendMessage(remoteJid, {
-            text: `⏱️ *Waktu Ekstra Ditambahkan!*\n📝 Tugas: *${targetPendingTask.task}*\n⏰ Deadline baru: *${deadlineStr}*\n\nJadwal pengingat otomatis telah diaktifkan kembali agar tugasmu tidak terlewat. Semangat! ✨`,
-          });
-          if (reply?.key?.id) {
-            await linkTaskMessage(db, targetPendingTask.id, reply.key.id);
-          }
-          return;
-        }
       }
     }
   }
