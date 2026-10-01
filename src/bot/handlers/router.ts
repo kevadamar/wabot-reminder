@@ -739,9 +739,11 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
     const localParsed = parseLocalTask(timeStr, new Date(), user.timezone);
     let newDeadline = localParsed.deadline;
-    if (!newDeadline) {
+    if (!newDeadline || newDeadline.getTime() <= Date.now()) {
       const nlp = await parseTaskMessage(timeStr, { now: new Date(), timezone: user.timezone });
-      newDeadline = nlp.deadline;
+      if (nlp.deadline && (!newDeadline || nlp.deadline.getTime() > Date.now())) {
+        newDeadline = nlp.deadline;
+      }
     }
 
     if (!newDeadline) {
@@ -927,9 +929,11 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       const localParsed = parseLocalTask(timeStr, new Date(), user.timezone);
 
       let newDeadline = localParsed.deadline;
-      if (!newDeadline) {
+      if (!newDeadline || newDeadline.getTime() <= Date.now()) {
         const nlp = await parseTaskMessage(timeStr, { now: new Date(), timezone: user.timezone });
-        newDeadline = nlp.deadline;
+        if (nlp.deadline && (!newDeadline || nlp.deadline.getTime() > Date.now())) {
+          newDeadline = nlp.deadline;
+        }
       }
 
       if (!newDeadline) {

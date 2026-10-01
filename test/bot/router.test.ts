@@ -269,6 +269,62 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(updatedTask?.deadline).not.toBeNull();
   });
 
+  it('should reschedule task forward when user replies with "ubah waktu : senin jam 9" or "ubah waktu : senin 5 oktober jam 9"', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Owner', true);
+    const task = await createTask(db, {
+      userJid: allowedUserJid,
+      task: 'konsul nama jenis untuk noodles snack mamee',
+      deadline: new Date(),
+      status: 'pending',
+    });
+
+    const botMsgId = 'BOT_MSG_TASK_MAMEE';
+    await linkTaskMessage(db, task.id, botMsgId);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_RESCHEDULE_RESP_MAMEE' } };
+      },
+    };
+
+    // 1. Reply with "ubah waktu : senin jam 9"
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_REPLY_SENIN_9' },
+      message: {
+        extendedTextMessage: {
+          text: 'ubah waktu : senin jam 9',
+          contextInfo: { stanzaId: botMsgId },
+        },
+      },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Jadwal Berhasil Diperbarui!');
+    expect(sentMessages[0]).not.toContain('sudah lewat dari jam sekarang nih');
+
+    const updatedTask = (await db.select().from(tasks))[0];
+    expect(updatedTask?.deadline).not.toBeNull();
+    // Must be in the future
+    expect(updatedTask!.deadline!.getTime()).toBeGreaterThan(Date.now());
+
+    // 2. Reply with "ubah waktu : senin 5 oktober jam 9"
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'USER_REPLY_SENIN_5_OKT' },
+      message: {
+        extendedTextMessage: {
+          text: 'ubah waktu : senin 5 oktober jam 9',
+          contextInfo: { stanzaId: botMsgId },
+        },
+      },
+    });
+
+    expect(sentMessages.length).toBe(2);
+    expect(sentMessages[1]).toContain('Jadwal Berhasil Diperbarui!');
+    expect(sentMessages[1]).not.toContain('sudah lewat dari jam sekarang nih');
+  });
+
   it('should rename task via quoted reply "ubah tugas: ..."', async () => {
     await ensureUserSettings(db, allowedUserJid, 'Owner', true);
     const task = await createTask(db, {

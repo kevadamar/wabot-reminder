@@ -124,6 +124,42 @@ describe('Seam 1: NLP Intent & Deadline Extraction', () => {
     expect(r3.deadline?.getUTCHours()).toBe(7);
   });
 
+  it('should parse Indonesian day of week forward and recognize Indonesian month names', async () => {
+    // Current time: Thursday, Oct 1, 2026, 13:00 WIB
+    const thursdayNow = new Date('2026-10-01T06:00:00.000Z');
+
+    // 1. "senin jam 9" on Thursday should resolve forward to next Monday, Oct 5, 2026 at 09:00 WIB (02:00 UTC)
+    const r1 = await parseTaskMessage('konsul nama jenis senin jam 9', {
+      now: thursdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r1.isTask).toBe(true);
+    expect(r1.taskTitle).toBe('konsul nama jenis');
+    expect(r1.deadline).not.toBeNull();
+    expect(r1.deadline?.toISOString()).toBe('2026-10-05T02:00:00.000Z');
+
+    // 2. "senin 5 oktober jam 9" should resolve to Monday, Oct 5, 2026 at 09:00 WIB
+    const r2 = await parseTaskMessage('konsul nama jenis senin 5 oktober jam 9', {
+      now: thursdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r2.isTask).toBe(true);
+    expect(r2.taskTitle).toBe('konsul nama jenis');
+    expect(r2.deadline?.toISOString()).toBe('2026-10-05T02:00:00.000Z');
+
+    // 3. "5 oktober jam 9" should resolve to Oct 5, 2026 at 09:00 WIB
+    const r3 = await parseTaskMessage('review dokumen 5 oktober jam 9', {
+      now: thursdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r3.isTask).toBe(true);
+    expect(r3.taskTitle).toBe('review dokumen');
+    expect(r3.deadline?.toISOString()).toBe('2026-10-05T02:00:00.000Z');
+  });
+
   it('should extract explicit per-task reminder lead time (menit, jam, H-1) and clean the task title', async () => {
     // 1. "Meeting project besok jam 15:00 ingatkan 30 menit sebelumnya"
     const r1 = await parseTaskMessage('Meeting project besok jam 15:00 ingatkan 30 menit sebelumnya', {

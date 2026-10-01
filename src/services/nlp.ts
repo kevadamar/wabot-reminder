@@ -129,6 +129,20 @@ export function normalizeIndonesianTimePhrases(text: string): string {
   normalized = normalized.replace(/\b(\d+)\s*jam\s*lagi\b/gi, 'in $1 hours');
   normalized = normalized.replace(/\b(\d+)\s*hari\s*lagi\b/gi, 'in $1 days');
 
+  // Indonesian Months
+  normalized = normalized.replace(/\bjanuari\b|\bjan\b/gi, 'january');
+  normalized = normalized.replace(/\bfebruari\b|\bfeb\b/gi, 'february');
+  normalized = normalized.replace(/\bmaret\b|\bmar\b/gi, 'march');
+  normalized = normalized.replace(/\bapril\b|\bapr\b/gi, 'april');
+  normalized = normalized.replace(/\bmei\b/gi, 'may');
+  normalized = normalized.replace(/\bjuni\b|\bjun\b/gi, 'june');
+  normalized = normalized.replace(/\bjuli\b|\bjul\b/gi, 'july');
+  normalized = normalized.replace(/\bagustus\b|\bags\b|\bagt\b/gi, 'august');
+  normalized = normalized.replace(/\bseptember\b|\bsept?\b/gi, 'september');
+  normalized = normalized.replace(/\boktober\b|\bokt\b/gi, 'october');
+  normalized = normalized.replace(/\bnovember\b|\bnov\b/gi, 'november');
+  normalized = normalized.replace(/\bdesember\b|\bdes\b/gi, 'december');
+
   // Days of week with "depan" (e.g. "senin depan" -> "next monday")
   normalized = normalized.replace(/\bsenin\s+depan\b/gi, 'next monday');
   normalized = normalized.replace(/\bselasa\s+depan\b/gi, 'next tuesday');
@@ -176,8 +190,8 @@ export function normalizeIndonesianTimePhrases(text: string): string {
     return `at ${h}:00`;
   });
 
-  // Standalone 14.00 or 14:00 without "jam" prefix
-  normalized = normalized.replace(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*(wib|wita|wit)?\b/gi, 'at $1:$2');
+  // Standalone 14.00 or 14:00 without "jam" prefix (avoid duplicate "at" if already converted)
+  normalized = normalized.replace(/(?<!at\s+)\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*(wib|wita|wit)?\b/gi, 'at $1:$2');
 
   return normalized;
 }
@@ -265,7 +279,7 @@ export function parseLocalTask(text: string, now: Date = new Date(), timezone = 
 
   const normalized = normalizeIndonesianTimePhrases(cleanInput);
   const tzOffsetMinutes = getTimezoneOffsetMinutes(timezone, now);
-  const parsedDates = chrono.en.parse(normalized, { instant: now, timezone: tzOffsetMinutes });
+  const parsedDates = chrono.en.parse(normalized, { instant: now, timezone: tzOffsetMinutes }, { forwardDate: true });
 
   if (parsedDates.length > 0 && parsedDates[0]) {
     const parsed = parsedDates[0];
@@ -277,30 +291,41 @@ export function parseLocalTask(text: string, now: Date = new Date(), timezone = 
     // Clean Indonesian temporal keywords
     taskTitle = taskTitle.replace(
       /\b(besok\s+lusa|besok|lusa|kemarin|hari\s+ini|malam\s+ini|siang\s+ini|sore\s+ini|pagi\s+ini|nanti\s+malam|nanti\s+sore|nanti\s+siang|nanti\s+pagi|nanti)\b/gi,
-      ''
+      ' '
     );
     taskTitle = taskTitle.replace(
       /\b(senin|selasa|rabu|kamis|jum'?at|sabtu|minggu)(\s+depan)?\b/gi,
-      ''
+      ' '
+    );
+    taskTitle = taskTitle.replace(
+      /\b(tgl|tanggal)?\s*\d{1,2}\s+(januari|jan|februari|feb|maret|mar|april|apr|mei|juni|jun|juli|jul|agustus|ags|agt|september|sept?|oktober|okt|november|nov|desember|des)\s*(\d{4})?\b/gi,
+      ' '
+    );
+    taskTitle = taskTitle.replace(
+      /\b(januari|jan|februari|feb|maret|mar|april|apr|mei|juni|jun|juli|jul|agustus|ags|agt|september|sept?|oktober|okt|november|nov|desember|des)\b/gi,
+      ' '
     );
     taskTitle = taskTitle.replace(
       /\b(jam|pukul|pk)\s*\d{1,2}([:.]\d{2})?(\s*(siang|sore|malam|pagi|subuh))?(\s*wib|\s*wita|\s*wit)?\b/gi,
-      ''
+      ' '
     );
     taskTitle = taskTitle.replace(
       /\b([01]?\d|2[0-3])[:.][0-5]\d(\s*(siang|sore|malam|pagi|subuh))?(\s*wib|\s*wita|\s*wit)?\b/gi,
-      ''
+      ' '
     );
-    taskTitle = taskTitle.replace(/\b\d+\s*(menit|jam|hari)\s*lagi\b/gi, '');
-    taskTitle = taskTitle.replace(/\b(pada|di|untuk|tgl|tanggal)\b/gi, '');
+    taskTitle = taskTitle.replace(/\b\d+\s*(menit|jam|hari)\s*lagi\b/gi, ' ');
+    taskTitle = taskTitle.replace(/\b(pada|di|untuk|tgl|tanggal)\b/gi, ' ');
 
     // Clean extra punctuation, leading dots, commas, colons, and extra whitespace
     taskTitle = cleanProfanity(taskTitle.replace(/^[-:., ]+|[-:., ]+$/g, '').replace(/\s+/g, ' ').trim());
     const sentiment = detectSentiment(trimmed);
 
+    const finalTaskTitle = taskTitle || '';
+    const isPureTime = finalTaskTitle.trim() === '';
+
     return {
-      isTask: true,
-      taskTitle: taskTitle || cleanProfanity(cleanInput) || cleanInput,
+      isTask: !isPureTime,
+      taskTitle: finalTaskTitle,
       deadline,
       needsDeadline: false,
       rawText: text,
@@ -423,7 +448,7 @@ Instruksi:
    - "neutral": jika pesan wajar atau to-do biasa.
    - "positive": jika pesan ceria, antusias, atau berterima kasih.
 3. Bersihkan judul tugas dari kata penunjuk waktu, frasa permintaan pengingat, dan kata makian/umpatan jika ada (taskTitle).
-4. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z").
+4. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z"). Jika pengguna hanya menyebutkan nama hari (seperti "senin", "selasa") tanpa kata penunjuk lampau ("lalu"/"kemarin"), selalu asumsikan hari tersebut adalah hari terdekat di MASA DEPAN (akan datang).
 5. ATURAN WAJIB: Jika pengguna TIDAK menyebutkan keterangan tanggal, hari, jam, atau waktu sama sekali, JANGAN PERNAH berasumsi, menebak, atau menentukan sendiri batas waktunya! Isi deadline: null dan needsDeadline: true.
 6. Jika pengguna secara eksplisit meminta waktu pengingat awal (contoh: "ingatkan 30 menit sebelumnya", "ingatkan 1 jam sebelum", "remind me 15 mins before", "ingatkan H-1"), hitung dan ekstrak durasinya dalam satuan menit integer (contoh: 30, 60, 120, 1440) ke field reminderLeadMinutes. Jika pengguna TIDAK meminta waktu pengingat khusus, isi reminderLeadMinutes: null.
 
