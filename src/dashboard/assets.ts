@@ -105,9 +105,38 @@ export const DASHBOARD_HTML = `<!doctype html>
       </div>
     </section>
 
+    <section aria-labelledby="overdue-tasks-title">
+      <div class="section-heading">
+        <div><p class="index">07</p><h2 id="overdue-tasks-title">Tugas Lewat Deadline (Overdue) & Manual Reminder Trigger</h2></div>
+        <span id="overdue-count-badge" class="status danger">0 OVERDUE</span>
+      </div>
+      <p class="section-desc">Daftar tugas aktif yang sudah melewati target waktu (deadline). Anda dapat memicu notifikasi pengingat WhatsApp secara manual dan langsung kepada pengguna.</p>
+
+      <div id="overdue-feedback" class="user-feedback" hidden></div>
+
+      <div class="table-wrap mt-sm">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col" class="col-id">ID</th>
+              <th scope="col">Tugas</th>
+              <th scope="col">Kontak / Pengguna</th>
+              <th scope="col">Target Waktu (Deadline)</th>
+              <th scope="col">Keterlambatan</th>
+              <th scope="col">Status Pengingat</th>
+              <th scope="col" class="text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="overdue-tasks-body">
+            <tr><td colspan="7">Memuat tugas yang lewat deadline…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section aria-labelledby="tasks-explorer-title">
       <div class="section-heading">
-        <div><p class="index">07</p><h2 id="tasks-explorer-title">Task Explorer & Detail View</h2></div>
+        <div><p class="index">08</p><h2 id="tasks-explorer-title">Task Explorer & Detail View</h2></div>
         <span id="tasks-count-badge" class="status">0 TASKS</span>
       </div>
       <p class="section-desc">Daftar seluruh tugas bot WhatsApp. Klik tombol Detail untuk melihat rincian sub-tugas, berkas lampiran, dan riwayat perubahannya.</p>
@@ -116,6 +145,7 @@ export const DASHBOARD_HTML = `<!doctype html>
         <div class="task-filters" role="group" aria-label="Filter status tugas">
           <button type="button" class="filter-btn" data-status="all">Semua</button>
           <button type="button" class="filter-btn active" data-status="active">Aktif</button>
+          <button type="button" class="filter-btn" data-status="overdue">Lewat Deadline</button>
           <button type="button" class="filter-btn" data-status="pending">Pending</button>
           <button type="button" class="filter-btn" data-status="pending_deadline">No Deadline</button>
           <button type="button" class="filter-btn" data-status="resolved">Selesai</button>
@@ -156,7 +186,7 @@ export const DASHBOARD_HTML = `<!doctype html>
 
     <section aria-labelledby="cron-monitoring-title">
       <div class="section-heading">
-        <div><p class="index">08</p><h2 id="cron-monitoring-title">Cron & Automation Monitoring</h2></div>
+        <div><p class="index">09</p><h2 id="cron-monitoring-title">Cron & Automation Monitoring</h2></div>
         <span id="cron-status-badge" class="status">SCHEDULER RUNNING</span>
       </div>
       <p class="section-desc">Pantau status engine scheduler, jadwal pengingat tugas (reminder) yang belum terkirim, serta jadwal morning digest. Anda dapat mematikan jadwal pengingat yang berpotensi spam atau heavy sebelum dieksekusi.</p>
@@ -286,7 +316,7 @@ export const DASHBOARD_CSS = `
 :root{--bg:#111513;--surface:#171c19;--line:#303832;--text:#edf3ef;--muted:#9ca9a1;--accent:#8ee3b0;--warn:#ffcf70;--danger:#ff8b84;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);background:var(--bg)}
 *{box-sizing:border-box}body{margin:0;min-width:320px;background:var(--bg);line-height:1.5}.skip-link{position:absolute;left:1rem;top:-4rem;background:var(--accent);color:#08110b;padding:.6rem 1rem;z-index:10}.skip-link:focus{top:1rem}.topbar{display:flex;justify-content:space-between;align-items:center;gap:1.5rem;padding:1.5rem clamp(1rem,4vw,4rem);border-bottom:1px solid var(--line);flex-wrap:wrap}.topbar-brand{display:flex;flex-direction:column}.topbar-nav{display:inline-flex;gap:.35rem;background:var(--surface);padding:.25rem;border:1px solid var(--line);border-radius:6px}.nav-tab{color:var(--muted);text-decoration:none;font-size:.82rem;font-weight:600;padding:.4rem .85rem;border-radius:4px;transition:all .15s ease}.nav-tab:hover{color:var(--text);background:rgba(255,255,255,.04)}.nav-tab.active{color:var(--bg);background:var(--accent);font-weight:700}h1,h2,p{margin:0}h1{font-size:clamp(2rem,5vw,4.5rem);letter-spacing:-.055em;line-height:.95;font-weight:650}h2{font-size:1.05rem;letter-spacing:.02em}.eyebrow,.index{font:600 .7rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;color:var(--accent);margin-bottom:.65rem}.topbar-actions{display:flex;align-items:center;gap:1rem}.muted{color:var(--muted);font-size:.85rem}button{font:inherit;font-weight:650;color:var(--bg);background:var(--accent);border:0;padding:.65rem 1rem;cursor:pointer}button:hover{filter:brightness(1.08)}button:focus-visible,a:focus-visible{outline:3px solid var(--warn);outline-offset:3px}main{max-width:1440px;margin:auto;padding:0 clamp(1rem,4vw,4rem)}section,article{padding:2rem 0;border-bottom:1px solid var(--line)}.section-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}.section-heading.compact{margin-bottom:.6rem}.section-heading>div{display:flex;align-items:baseline;gap:.8rem}.section-heading .index{margin:0}.status{font:700 .75rem ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent);border:1px solid currentColor;padding:.3rem .55rem}.status.warn{color:var(--warn)}.status.danger{color:var(--danger)}.metric-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin:0;border:1px solid var(--line)}.metric-strip>div{padding:1rem;border-right:1px solid var(--line)}.metric-strip>div:last-child{border:0}dt{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.08em}dd{margin:.35rem 0 0;font-size:1.2rem;font-weight:650}.split{display:grid;grid-template-columns:1fr 1fr;gap:3rem}.split article{border:0;padding:0}.data-list{margin:0}.data-list>div{display:flex;justify-content:space-between;gap:1rem;padding:.8rem 0;border-bottom:1px solid var(--line)}.data-list dd{margin:0;font-size:1rem}.table-wrap{overflow-x:auto;border:1px solid var(--line)}table{width:100%;border-collapse:collapse;font-size:.85rem}th,td{text-align:left;padding:.75rem 1rem;border-bottom:1px solid var(--line)}th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;background:var(--surface)}td:nth-child(n+3),th:nth-child(n+3){text-align:right;font-variant-numeric:tabular-nums}.event-list{display:grid;gap:.5rem}.event{display:grid;grid-template-columns:minmax(10rem,.7fr) 1fr 1fr;gap:1rem;padding:.8rem 0;border-bottom:1px solid var(--line);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem}.event time,.empty{color:var(--muted)}.page-error{margin:1rem 0;padding:1rem;border:1px solid var(--danger);color:var(--danger)}footer{padding:2rem clamp(1rem,4vw,4rem);color:var(--muted);font-size:.75rem;text-align:center}
 .section-desc{color:var(--muted);font-size:.85rem;margin-bottom:1.25rem}.user-add-form{display:flex;flex-wrap:wrap;gap:1rem;align-items:center}.input-field{flex:1;min-width:200px}.input-field input{width:100%;padding:.65rem 1rem;background:var(--surface);border:1px solid var(--line);color:var(--text);font:inherit;font-size:.9rem}.input-field input:focus{outline:2px solid var(--accent);border-color:transparent}.user-feedback{padding:.75rem 1rem;margin-top:.75rem;border:1px solid var(--line);font-size:.85rem}.user-feedback.success{border-color:var(--accent);color:var(--accent);background:rgba(142,227,176,.08)}.user-feedback.error{border-color:var(--danger);color:var(--danger);background:rgba(255,139,132,.08)}.badge{display:inline-block;padding:.2rem .5rem;font:700 .7rem ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.05em}.badge-allowed{color:var(--accent);border:1px solid var(--accent);background:rgba(142,227,176,.1)}.badge-blocked{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.1)}.btn-sm{font:inherit;font-size:.78rem;font-weight:600;padding:.35rem .75rem;cursor:pointer;border:0}.btn-allow{background:var(--accent);color:var(--bg)}.btn-revoke{background:transparent;color:var(--warn);border:1px solid var(--warn)}.btn-revoke:hover{background:rgba(255,207,112,.1)}.btn-del{background:transparent;color:var(--danger);border:1px solid var(--danger);margin-left:.4rem}.btn-del:hover{background:rgba(255,139,132,.1)}.btn-lead{background:transparent;color:var(--accent);border:1px solid var(--accent);margin-right:.4rem}.btn-lead:hover{background:rgba(142,227,176,.15)}.lead-badge{display:inline-flex;align-items:center;padding:.15rem .45rem;font:600 .75rem ui-monospace,monospace;color:var(--accent);background:rgba(142,227,176,.1);border:1px solid rgba(142,227,176,.25);cursor:pointer;border-radius:2px;margin-right:.4rem}.lead-badge:hover{background:rgba(142,227,176,.2);border-color:var(--accent)}.lead-presets{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.5rem}.btn-preset{font:inherit;font-size:.78rem;font-weight:600;background:var(--bg);color:var(--text);border:1px solid var(--line);padding:.3rem .6rem;cursor:pointer}.btn-preset:hover{border-color:var(--accent);color:var(--accent)}.btn-preset.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}.user-meta{display:flex;flex-direction:column;gap:.2rem}.user-phone{font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.user-name{font-size:.8rem;color:var(--muted)}
-.task-toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1rem}.task-filters{display:flex;flex-wrap:wrap;gap:.4rem}.filter-btn{font:inherit;font-size:.78rem;font-weight:600;background:var(--surface);color:var(--muted);border:1px solid var(--line);padding:.4rem .8rem;cursor:pointer}.filter-btn:hover{color:var(--text);border-color:var(--muted)}.filter-btn.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}.task-search{flex:1;min-width:220px;max-width:340px}.task-search input{width:100%;padding:.5rem .85rem;background:var(--surface);border:1px solid var(--line);color:var(--text);font:inherit;font-size:.85rem}.task-search input:focus{outline:2px solid var(--accent);border-color:transparent}.badge-pending{color:var(--warn);border:1px solid var(--warn);background:rgba(255,207,112,.1)}.badge-pending_deadline{color:#b3a0ff;border:1px solid #b3a0ff;background:rgba(179,160,255,.1)}.badge-resolved{color:var(--accent);border:1px solid var(--accent);background:rgba(142,227,176,.1)}.badge-cancelled{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.1)}.pill-count{display:inline-flex;align-items:center;gap:.25rem;font:600 .75rem ui-monospace,monospace;color:var(--muted);background:rgba(255,255,255,.05);padding:.15rem .45rem;margin-right:.3rem}.btn-detail{background:transparent;color:var(--accent);border:1px solid var(--accent);font-size:.78rem;font-weight:600;padding:.35rem .75rem;cursor:pointer}.btn-detail:hover{background:rgba(142,227,176,.15)}.subtask-label{font-size:.75rem;color:var(--muted);margin-top:.2rem;display:block}
+.task-toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1rem}.task-filters{display:flex;flex-wrap:wrap;gap:.4rem}.filter-btn{font:inherit;font-size:.78rem;font-weight:600;background:var(--surface);color:var(--muted);border:1px solid var(--line);padding:.4rem .8rem;cursor:pointer}.filter-btn:hover{color:var(--text);border-color:var(--muted)}.filter-btn.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}.task-search{flex:1;min-width:220px;max-width:340px}.task-search input{width:100%;padding:.5rem .85rem;background:var(--surface);border:1px solid var(--line);color:var(--text);font:inherit;font-size:.85rem}.task-search input:focus{outline:2px solid var(--accent);border-color:transparent}.badge-pending{color:var(--warn);border:1px solid var(--warn);background:rgba(255,207,112,.1)}.badge-pending_deadline{color:#b3a0ff;border:1px solid #b3a0ff;background:rgba(179,160,255,.1)}.badge-resolved{color:var(--accent);border:1px solid var(--accent);background:rgba(142,227,176,.1)}.badge-cancelled{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.1)}.badge-overdue{color:var(--danger);border:1px solid var(--danger);background:rgba(255,139,132,.12);font-weight:700}.overdue-pill{color:var(--danger);font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82rem}.btn-remind{background:#ffcf70;color:#111513;border:0;font-size:.78rem;font-weight:700;padding:.35rem .75rem;cursor:pointer;border-radius:3px;display:inline-flex;align-items:center;gap:.35rem;transition:filter .15s ease}.btn-remind:hover:not(:disabled){filter:brightness(1.12)}.btn-remind:disabled{opacity:.5;cursor:not-allowed}.pill-count{display:inline-flex;align-items:center;gap:.25rem;font:600 .75rem ui-monospace,monospace;color:var(--muted);background:rgba(255,255,255,.05);padding:.15rem .45rem;margin-right:.3rem}.btn-detail{background:transparent;color:var(--accent);border:1px solid var(--accent);font-size:.78rem;font-weight:600;padding:.35rem .75rem;cursor:pointer}.btn-detail:hover{background:rgba(142,227,176,.15)}.subtask-label{font-size:.75rem;color:var(--muted);margin-top:.2rem;display:block}
 .task-modal{position:fixed;inset:0;margin:auto;max-width:760px;width:92%;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:1.5rem;box-shadow:0 20px 40px rgba(0,0,0,.6);z-index:100}.task-modal::backdrop{background:rgba(0,0,0,.75);backdrop-filter:blur(3px)}.modal-header{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;border-bottom:1px solid var(--line);padding-bottom:1rem}.modal-title{font-size:1.25rem;font-weight:650;line-height:1.3;margin:0}.modal-close{background:transparent;border:0;color:var(--muted);font-size:1.4rem;line-height:1;padding:.2rem .5rem;cursor:pointer}.modal-close:hover{color:var(--text)}.modal-body{max-height:calc(85vh - 5rem);overflow-y:auto;padding-top:1.25rem;display:flex;flex-direction:column;gap:1.5rem}.detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;background:rgba(0,0,0,.2);padding:1rem;border:1px solid var(--line)}.detail-grid dt{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}.detail-grid dd{margin:.25rem 0 0;font-size:.9rem;font-weight:500;word-break:break-word}.detail-card{border:1px solid var(--line);padding:1rem;background:rgba(0,0,0,.1)}.detail-card h4{margin:0 0 .75rem 0;font-size:.88rem;letter-spacing:.03em;color:var(--accent);text-transform:uppercase}.subtask-items{display:flex;flex-direction:column;gap:.5rem;margin:0;padding:0;list-style:none}.subtask-item{display:flex;justify-content:space-between;align-items:center;padding:.5rem .75rem;background:var(--bg);border:1px solid var(--line);font-size:.85rem}.attachment-card{border:1px solid var(--line);background:var(--bg);padding:.75rem;margin-bottom:.75rem}.attachment-header{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted);margin-bottom:.5rem}.attachment-name{font-weight:600;color:var(--text);font-family:ui-monospace,monospace}.ocr-box{background:var(--surface);border:1px solid var(--line);padding:.6rem .8rem;font-size:.78rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;color:#c0cdc5;max-height:160px;overflow-y:auto;margin-top:.5rem}.timeline{display:flex;flex-direction:column;gap:.8rem;border-left:2px solid var(--line);padding-left:1rem;margin-left:.5rem}.timeline-item{font-size:.8rem;position:relative}.timeline-item::before{content:"";position:absolute;left:-1.35rem;top:.35rem;width:8px;height:8px;border-radius:50%;background:var(--accent)}.timeline-time{color:var(--muted);font-family:ui-monospace,monospace;font-size:.72rem;margin-bottom:.2rem}.timeline-content{color:var(--text);line-height:1.4}.parent-pill{display:inline-block;padding:.4rem .75rem;background:rgba(142,227,176,.08);border:1px solid var(--line);font-size:.82rem}
 .mt-sm{margin-top:1.25rem}.mt-md{margin-top:1.5rem}.mb-md{margin-bottom:1.5rem}.ml-xs{margin-left:.5rem}.col-id{width:4.5rem}.text-right{text-align:right}.block-eyebrow{margin-bottom:.25rem;display:block}
 .pagination-bar{display:flex;justify-content:space-between;align-items:center;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--line);flex-wrap:wrap;gap:.75rem}.pagination-info{font-size:.82rem;color:var(--muted);font-family:ui-monospace,monospace}.pagination-buttons{display:flex;gap:.5rem}.btn-page{background:var(--surface);border:1px solid var(--line);color:var(--text);padding:.35rem .75rem;font-size:.8rem;font-weight:600;cursor:pointer}.btn-page:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}.btn-page:disabled{opacity:.4;cursor:not-allowed}
@@ -353,6 +383,153 @@ tr.append(tdUser,tdStatus,tdSettings,tdTasks,tdCreated,tdAction);tbody.append(tr
 
 async function loadUsers(){try{const res=await fetch('/api/users',{cache:'no-store'});if(res.ok){renderUsers(await res.json())}}catch(e){console.warn('Failed to load users:',e)}}
 
+function showOverdueFeedback(msg,isErr=false){
+  const fb=el('overdue-feedback');
+  if(!fb)return;
+  fb.textContent=msg;
+  fb.className='user-feedback '+(isErr?'error':'success');
+  fb.hidden=false;
+  setTimeout(()=>{fb.hidden=true},6000);
+}
+
+function formatOverdueDistance(deadlineStr){
+  if(!deadlineStr)return '—';
+  const diffMs=Date.now()-new Date(deadlineStr).getTime();
+  if(diffMs<=0)return 'Baru saja';
+  const mins=Math.floor(diffMs/60000);
+  if(mins<60)return mins+' menit lalu';
+  const hours=Math.floor(mins/60);
+  if(hours<24)return hours+' jam '+(mins%60>0?mins%60+'m ':'')+'lalu';
+  const days=Math.floor(hours/24);
+  return days+' hari '+(hours%24>0?hours%24+'j ':'')+'lalu';
+}
+
+function renderOverdueTasks(taskList){
+  const tbody=el('overdue-tasks-body');
+  if(!tbody)return;
+  tbody.replaceChildren();
+  const badge=el('overdue-count-badge');
+  if(badge){
+    badge.textContent=taskList.length+' OVERDUE';
+    badge.className='status '+(taskList.length>0?'danger':'');
+  }
+
+  if(!taskList.length){
+    const tr=document.createElement('tr');
+    const td=document.createElement('td');
+    td.colSpan=7;
+    td.style.padding='1.5rem';
+    td.style.textAlign='center';
+    td.style.color='var(--accent)';
+    td.textContent='🎉 Mantap! Tidak ada tugas yang lewat deadline. Semua to-do berjalan sesuai jadwal.';
+    tr.append(td);
+    tbody.append(tr);
+    return;
+  }
+
+  for(const t of taskList){
+    const tr=document.createElement('tr');
+
+    const tdId=document.createElement('td');
+    tdId.style.fontFamily='ui-monospace,SFMono-Regular,Menlo,monospace';
+    tdId.textContent='#'+t.id;
+
+    const tdTask=document.createElement('td');
+    const titleDiv=document.createElement('div');
+    titleDiv.style.fontWeight='600';
+    titleDiv.textContent=t.task;
+    tdTask.append(titleDiv);
+    if(t.parentId){
+      const subNote=document.createElement('span');
+      subNote.className='subtask-label';
+      subNote.textContent='↳ Sub-tugas dari #'+t.parentId;
+      tdTask.append(subNote);
+    }
+
+    const tdUser=document.createElement('td');
+    const meta=document.createElement('div');
+    meta.className='user-meta';
+    const phone=document.createElement('span');
+    phone.className='user-phone';
+    phone.textContent='+'+t.phoneNumber;
+    const name=document.createElement('span');
+    name.className='user-name';
+    name.textContent=t.userName||'(Tanpa nama)';
+    meta.append(phone,name);
+    tdUser.append(meta);
+
+    const tdDeadline=document.createElement('td');
+    tdDeadline.textContent=t.deadline?new Date(t.deadline).toLocaleString('id-ID'):'—';
+
+    const tdOverdue=document.createElement('td');
+    const overdueSpan=document.createElement('span');
+    overdueSpan.className='overdue-pill';
+    overdueSpan.textContent='⚠️ '+formatOverdueDistance(t.deadline);
+    tdOverdue.append(overdueSpan);
+
+    const tdNotif=document.createElement('td');
+    let notifTxt='⚪ Belum diingatkan';
+    if(t.reminded===1)notifTxt='🟡 Sudah diingatkan (Normal)';
+    else if(t.reminded===2)notifTxt='🔴 Sudah alert lewat deadline';
+    tdNotif.textContent=notifTxt;
+
+    const tdAction=document.createElement('td');
+    tdAction.className='text-right';
+    const btnRemind=document.createElement('button');
+    btnRemind.type='button';
+    btnRemind.className='btn-remind';
+    btnRemind.textContent='🔔 Kirim Pengingat';
+    btnRemind.title='Kirim pengingat WhatsApp secara manual sekarang';
+    btnRemind.onclick=async()=>{
+      const ok=await askAdminConfirmation(
+        'Kirim Pengingat Tugas #'+t.id,
+        'Kirim notifikasi pengingat WhatsApp ke +'+t.phoneNumber+' untuk tugas "'+t.task+'" sekarang?',
+        'Ya, Kirim Pengingat',
+        false
+      );
+      if(!ok)return;
+      btnRemind.disabled=true;
+      btnRemind.textContent='Mengirim…';
+      try{
+        const r=await fetch('/api/tasks/remind-now',{
+          method:'POST',
+          headers:{'content-type':'application/json'},
+          body:JSON.stringify({taskId:t.id})
+        });
+        const resJson=await r.json();
+        if(resJson.success){
+          showOverdueFeedback('✅ Pengingat untuk tugas #'+t.id+' berhasil dikirim ke WhatsApp pengguna!');
+          await Promise.all([loadOverdueTasks(),loadTasks(),loadSnapshot()]);
+        }else{
+          showOverdueFeedback('⚠️ Gagal mengirim: '+(resJson.error||'Terjadi kesalahan'),true);
+          btnRemind.disabled=false;
+          btnRemind.textContent='🔔 Kirim Pengingat';
+        }
+      }catch(err){
+        showOverdueFeedback('Terjadi kesalahan jaringan saat mengirim pengingat',true);
+        btnRemind.disabled=false;
+        btnRemind.textContent='🔔 Kirim Pengingat';
+      }
+    };
+    tdAction.append(btnRemind);
+
+    tr.append(tdId,tdTask,tdUser,tdDeadline,tdOverdue,tdNotif,tdAction);
+    tbody.append(tr);
+  }
+}
+
+async function loadOverdueTasks(){
+  try{
+    const res=await fetch('/api/tasks?status=overdue&limit=50',{cache:'no-store'});
+    if(res.ok){
+      const data=await res.json();
+      renderOverdueTasks(data);
+    }
+  }catch(e){
+    console.warn('Failed to load overdue tasks:',e);
+  }
+}
+
 let currentTaskStatus='active';
 let currentTaskPage=1;
 const taskPageLimit=20;
@@ -363,6 +540,7 @@ let searchDebounceTimer=null;
 const statusMap={
   pending:{label:'Pending',cls:'badge-pending'},
   pending_deadline:{label:'No Deadline',cls:'badge-pending_deadline'},
+  overdue:{label:'Overdue',cls:'badge-overdue'},
   resolved:{label:'Selesai',cls:'badge-resolved'},
   cancelled:{label:'Batal',cls:'badge-cancelled'},
 };
@@ -531,6 +709,48 @@ async function openTaskDetail(taskId){
     };
 
     schForm.append(deadGroup,leadGroup,btnSave);
+
+    if(t.status==='pending'){
+      const btnRemindNow=document.createElement('button');
+      btnRemindNow.type='button';
+      btnRemindNow.className='btn-sm btn-remind';
+      btnRemindNow.style.marginLeft='.5rem';
+      btnRemindNow.textContent='🔔 Kirim Pengingat WhatsApp Sekarang';
+      btnRemindNow.title='Kirim pengingat WhatsApp secara manual sekarang';
+      btnRemindNow.onclick=async()=>{
+        const ok=await askAdminConfirmation(
+          'Kirim Pengingat Tugas #'+t.id,
+          'Kirim notifikasi pengingat WhatsApp ke +'+t.phoneNumber+' untuk tugas "'+t.task+'" sekarang?',
+          'Ya, Kirim Pengingat',
+          false
+        );
+        if(!ok)return;
+        btnRemindNow.disabled=true;
+        btnRemindNow.textContent='Mengirim…';
+        try{
+          const r=await fetch('/api/tasks/remind-now',{
+            method:'POST',
+            headers:{'content-type':'application/json'},
+            body:JSON.stringify({taskId:t.id})
+          });
+          const resJson=await r.json();
+          if(resJson.success){
+            showUserFeedback('✅ Pengingat untuk tugas #'+t.id+' berhasil dikirim ke WhatsApp pengguna!');
+            await Promise.all([openTaskDetail(t.id),loadOverdueTasks(),loadTasks(),loadSnapshot()]);
+          }else{
+            showUserFeedback('⚠️ Gagal mengirim: '+(resJson.error||'Terjadi kesalahan'),true);
+            btnRemindNow.disabled=false;
+            btnRemindNow.textContent='🔔 Kirim Pengingat WhatsApp Sekarang';
+          }
+        }catch{
+          showUserFeedback('Terjadi kesalahan jaringan saat mengirim pengingat',true);
+          btnRemindNow.disabled=false;
+          btnRemindNow.textContent='🔔 Kirim Pengingat WhatsApp Sekarang';
+        }
+      };
+      schForm.append(btnRemindNow);
+    }
+
     schSec.append(schH4,schDesc,schForm);
     modalBody.append(schSec);
 
@@ -851,7 +1071,7 @@ async function loadCrons(){
 
 async function loadSnapshot(){el('refresh').disabled=true;el('page-error').hidden=true;try{const response=await fetch('/api/snapshot',{cache:'no-store'});if(!response.ok)throw new Error('HTTP '+response.status);render(await response.json())}catch{el('page-error').textContent='Dashboard tidak dapat memuat data. Coba refresh kembali.';el('page-error').hidden=false}finally{el('refresh').disabled=false}}
 
-async function load(){await Promise.all([loadSnapshot(),loadUsers(),loadTasks(),loadCrons()])}
+async function load(){await Promise.all([loadSnapshot(),loadUsers(),loadOverdueTasks(),loadTasks(),loadCrons()])}
 
 el('refresh').addEventListener('click',load);
 el('add-user-form').addEventListener('submit',async(e)=>{

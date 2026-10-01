@@ -157,6 +157,74 @@ const OVERDUE_FALLBACKS = [
     `🔔 *Pemberitahuan Terakhir:*\n📝 *"${task}"*\n\nTarget waktunya sudah terlewat 15 menit. Barangkali terlupakan atau butuh perpanjangan waktu:\n- Balas *selesai* (atau reaksi ✅)\n- Balas *1* (+30 mnt), *2* (+1 jam), atau *3* (besok 09:00) untuk perpanjang agar tidak ke-skip\n- Balas *batal* (atau reaksi ❌) jika tidak diperlukan lagi ✨`,
 ];
 
+const MANUAL_TRIGGER_FALLBACKS = [
+  (task: string, deadline: string, name?: string) => {
+    const greeting = name ? `Halo kak ${name}! 👋` : 'Halo kak! 👋';
+    return (
+      `${greeting}\n\n` +
+      `Admin colek dikit nih… Hayoo, jangan-jangan jurus magernya lagi aktif ya? 🤭\n` +
+      `Biar pikiran nggak kepikiran terus, coba intip tugas yang satu ini deh:\n\n` +
+      `📝 *"${task}"*\n` +
+      `⏰ Target sebelumnya: *${deadline}*\n\n` +
+      `*Pilihan Cepat:*\n` +
+      `✅ Balas *selesai* (atau beri reaksi) kalau udah beres\n` +
+      `⏱️ Balas *1* (+30 mnt) | *2* (+1 jam) | *3* (besok 09:00) untuk waktu ekstra\n` +
+      `❌ Balas *batal* jika memang tidak diperlukan lagi\n\n` +
+      `Yuk gas tuntasin sekarang biar santainya makin plong! 🔥`
+    );
+  },
+  (task: string, deadline: string, name?: string) => {
+    const greeting = name ? `Halo kak ${name}! 🚨` : 'Halo kak! 🚨';
+    return (
+      `${greeting}\n\n` +
+      `Alarm anti-mager dari Admin bunyi nih! Katanya mau produktif dan sat-set, masa kalah sama rasa mager? Hehe 😉\n` +
+      `Coba cek tugas berikut yang butuh perhatianmu:\n\n` +
+      `📝 *"${task}"*\n` +
+      `⏰ Jadwal: *${deadline}*\n\n` +
+      `*Yuk ambil tindakan:*\n` +
+      `1️⃣ Balas *selesai* (atau reaksi ✅) kalau sudah kelar\n` +
+      `2️⃣ Balas *1* (+30 mnt), *2* (+1 jam), atau *3* (besok 09:00) agar dijadwalkan ulang\n` +
+      `3️⃣ Balas *batal* (atau reaksi ❌) jika ingin dibatalkan ✨\n\n` +
+      `Satu langkah kecil sekarang bikin hari kamu jauh lebih tenang! 💪`
+    );
+  },
+  (task: string, deadline: string, name?: string) => {
+    const greeting = name ? `Halo kak ${name}! ✨` : 'Halo kak! ✨';
+    return (
+      `${greeting}\n\n` +
+      `Admin mampir khusus buat suntik energi ekstra! Jangan biarkan mager mengambil alih hari baikmu ya 💪\n` +
+      `Ada rencana penting yang masih nungguin kamu nih:\n\n` +
+      `📝 *"${task}"*\n` +
+      `⏰ Target: *${deadline}*\n\n` +
+      `*Mau diapain nih kak?*\n` +
+      `- Balas *selesai* jika sudah tuntas ✅\n` +
+      `- Balas *1* / *2* / *3* kalau mau diperpanjang waktunya ⏱️\n` +
+      `- Balas *batal* kalau mau dilepas ❌\n\n` +
+      `Buktikan kamu bisa tuntaskan sekarang, yuk gas! 🚀`
+    );
+  },
+  (task: string, deadline: string, name?: string) => {
+    const greeting = name ? `Halo kak ${name}! ☕` : 'Halo kak! ☕';
+    return (
+      `${greeting}\n\n` +
+      `Admin deteksi ada sinyal-sinyal rebahan berkepanjangan nih 🤭 Yuk bangun dan segarkan fokus sebentar!\n` +
+      `Tugas ini tinggal sedikit lagi beres kok:\n\n` +
+      `📝 *"${task}"*\n` +
+      `⏰ Waktu target: *${deadline}*\n\n` +
+      `*Aksi Cepat:*\n` +
+      `✅ Balas *selesai* kalau udah beres\n` +
+      `⏱️ Balas *1* (+30 mnt) | *2* (+1 jam) | *3* (besok 09:00) untuk perpanjang\n` +
+      `❌ Balas *batal* untuk batalkan tugas\n\n` +
+      `Yuk selesaikan biar sisa hari bisa dinikmati dengan santai! 🌟`
+    );
+  },
+];
+
+export interface ReminderMessageOptions {
+  userName?: string | null;
+  isManualTrigger?: boolean;
+}
+
 /**
  * Generates an engaging, warm, human reminder message using Gemini (or fallback templates).
  * Strictly avoids cold debt-collection tone like "jatuh tempo" or "telah melewati batas waktu".
@@ -166,20 +234,37 @@ export async function generateReminderMessage(
   isOverdue: boolean,
   deadlineStr: string,
   customClient?: any,
-  parentTaskTitle?: string | null
+  parentTaskTitle?: string | null,
+  options?: ReminderMessageOptions
 ): Promise<string> {
+  const isManual = options?.isManualTrigger ?? false;
+  const rawName = options?.userName?.trim();
+  const userName = rawName || '';
+  const userGreeting = userName ? `kak ${userName}` : 'kak';
+
   const parentContext = parentTaskTitle
     ? `Tugas ini adalah bagian dari proyek: "${parentTaskTitle}". Sertakan konteks proyek induk dan sub-tugasnya secara jelas.\n`
     : '';
 
+  let statusContext = '';
+  if (isManual) {
+    statusContext = `PENGINGAT KHUSUS/MANUAL YANG DITRIGGER ADMIN DARI DASHBOARD karena tugas sudah melewati deadline.
+Tujuan Utama Pesan Ini:
+- Sapa pengguna secara hangat dan personal: "Halo ${userGreeting}!".
+- Paraphrase secara menarik, seru, dan playful bahwa Admin hadir untuk mengingatkan dengan nada menggoda/mencolek santai karena mendeteksi rasa mager / malas yang mulai datang (contoh nuansa: "Admin colek dikit nih… hayoo jangan-jangan jurus magernya lagi aktif ya? 🤭" atau "Alarm anti-mager dari Admin bunyi nih! Masa kalah sama rebahan? Hehe 😉").
+- Berikan suntikan dorongan dan semangat yang memicu pengguna langsung tersenyum dan tergerak menyelesaikannya.
+- JANGAN terdengar kaku, galak, menekan, atau seperti bos pemarah. Tunjukkan kepedulian yang bersahabat dan penuh energi positif!`;
+  } else if (isOverdue) {
+    statusContext =
+      'PENGINGAT TERAKHIR karena target waktu sudah lewat 15 menit. Berikan check-in hangat bahwa kamu khawatir pengguna lupa atau sedang butuh waktu ekstra agar tugasnya tidak ke-skip.';
+  } else {
+    statusContext = 'Mendekati waktu target';
+  }
+
   const prompt = `Kamu adalah asisten pribadi WhatsApp yang ramah, hangat, perhatian, dan natural.
 ${parentContext}Tugas: Buat pesan pengingat ramah untuk tugas: "${task.task}".
 Waktu target: "${deadlineStr}".
-Status: ${
-    isOverdue
-      ? 'PENGINGAT TERAKHIR karena target waktu sudah lewat 15 menit. Berikan check-in hangat bahwa kamu khawatir pengguna lupa atau sedang butuh waktu ekstra agar tugasnya tidak ke-skip.'
-      : 'Mendekati waktu target'
-  }.
+Status: ${statusContext}.
 
 Panduan Bahasa & Tone of Voice:
 1. Bersahabat, suportif, dan menyenangkan (seperti teman dekat yang mengingatkan).
@@ -187,8 +272,8 @@ Panduan Bahasa & Tone of Voice:
 3. DILARANG terdengar seperti template robot AI yang klise.
 4. Tampilkan nama tugas dengan format *"${task.task}"* dan waktu deadline secara natural.${parentTaskTitle ? ` Sebutkan juga proyek induknya: *"${parentTaskTitle}"*.` : ''}
 ${
-  isOverdue
-    ? '5. Sertakan saran tindakan yang jelas agar tidak ke-skip:\n   - Beri reaksi ✅ atau balas "selesai" jika sudah tuntas.\n   - Balas 1 (+30 mnt), 2 (+1 jam), atau 3 (besok 09:00) untuk perpanjang waktu ekstra.\n   - Beri reaksi ❌ atau balas "batal" jika ingin dibatalkan.'
+  isManual || isOverdue
+    ? '5. Sertakan pilihan tindakan cepat yang jelas agar tidak ke-skip:\n   - Beri reaksi ✅ atau balas "selesai" jika sudah tuntas.\n   - Balas 1 (+30 mnt), 2 (+1 jam), atau 3 (besok 09:00) untuk perpanjang waktu ekstra.\n   - Beri reaksi ❌ atau balas "batal" jika ingin dibatalkan.'
     : '5. Akhiri dengan ajakan santai untuk memberi reaksi ✅ jika sudah beres, atau ❌ jika dibatalkan.'
 }
 6. Buat ringkas dan nyaman dibaca (maksimal 4-6 baris). Balas langsung dengan isi pesannya saja tanpa tanda kutip di awal/akhir.`;
@@ -254,12 +339,18 @@ ${
 
   // Tier 3: Curated Warm Fallbacks
   telemetry.increment('ai_fallback_total', { operation: 'reminder_message', provider: 'local', outcome: 'selected' });
-  const pool = isOverdue ? OVERDUE_FALLBACKS : REGULAR_FALLBACKS;
-  const picked = pool[Math.floor(Math.random() * pool.length)]!;
-  const baseMsg = picked(task.task, deadlineStr);
+  let baseMsg: string;
+  if (isManual) {
+    const picked = MANUAL_TRIGGER_FALLBACKS[Math.floor(Math.random() * MANUAL_TRIGGER_FALLBACKS.length)]!;
+    baseMsg = picked(task.task, deadlineStr, userName);
+  } else {
+    const pool = isOverdue ? OVERDUE_FALLBACKS : REGULAR_FALLBACKS;
+    const picked = pool[Math.floor(Math.random() * pool.length)]!;
+    baseMsg = picked(task.task, deadlineStr);
+  }
 
   if (parentTaskTitle) {
-    return `📁 Proyek: *"${parentTaskTitle}"*\n${baseMsg}`;
+    return `📁 Proyek: *"${parentTaskTitle}"*\n\n${baseMsg}`;
   }
   return baseMsg;
 }

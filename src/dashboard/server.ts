@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { and, asc, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm';
 import {
   taskAttachments,
   taskHistory,
@@ -11,6 +11,7 @@ import {
 } from '../db/schema.js';
 import { runtimeHealth } from '../services/telemetry.js';
 import { rescheduleTask } from '../services/task.js';
+import { triggerTaskReminder } from '../bot/client.js';
 import { config } from '../config/index.js';
 import {
   DASHBOARD_CSS,
@@ -57,11 +58,16 @@ function isAuthorized(request: Request, username: string, password: string): boo
 
 export async function buildDashboardSnapshot(db: any) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [taskRows, userRows, storageRows, usageRows, errorRows] = await Promise.all([
+  const now = new Date();
+  const [taskRows, overdueRows, userRows, storageRows, usageRows, errorRows] = await Promise.all([
     db
       .select({ status: tasks.status, count: sql<number>`count(*)::int` })
       .from(tasks)
       .groupBy(tasks.status),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(and(eq(tasks.status, 'pending'), lte(tasks.deadline, now))),
     db
       .select({
         allowed: sql<number>`count(*) FILTER (WHERE ${userSettings.isAllowed} = true)::int`,
@@ -103,6 +109,7 @@ export async function buildDashboardSnapshot(db: any) {
   ]);
 
   const taskCounts = Object.fromEntries(taskRows.map((row: any) => [row.status, Number(row.count)]));
+  taskCounts.overdue = Number(overdueRows[0]?.count ?? 0);
   const users = userRows[0] ?? { allowed: 0, morningDigestEnabled: 0 };
   const storage = storageRows[0] ?? { attachments: 0, bytes: '0' };
   const memory = process.memoryUsage();
@@ -576,6 +583,9 @@ export async function listDashboardTasks(
   if (query.status && query.status !== 'all') {
     if (query.status === 'active') {
       conditions.push(or(eq(tasks.status, 'pending'), eq(tasks.status, 'pending_deadline')));
+    } else if (query.status === 'overdue') {
+      conditions.push(eq(tasks.status, 'pending'));
+      conditions.push(lte(tasks.deadline, new Date()));
     } else {
       conditions.push(eq(tasks.status, query.status));
     }
@@ -625,6 +635,9 @@ export async function countDashboardTasks(
   if (query.status && query.status !== 'all') {
     if (query.status === 'active') {
       conditions.push(or(eq(tasks.status, 'pending'), eq(tasks.status, 'pending_deadline')));
+    } else if (query.status === 'overdue') {
+      conditions.push(eq(tasks.status, 'pending'));
+      conditions.push(lte(tasks.deadline, new Date()));
     } else {
       conditions.push(eq(tasks.status, query.status));
     }
@@ -964,6 +977,7 @@ export function createDashboardHandler(options: {
   password: string;
   snapshot: () => Promise<unknown>;
   db?: any;
+  sendReminder?: (taskId: number) => Promise<{ success: boolean; messageId?: string; error?: string }>;
 }): (request: Request) => Promise<Response> {
   const dispatch = async (request: Request, pathname: string, url: URL): Promise<Response> => {
     if (request.method === 'GET') {
@@ -1130,6 +1144,48 @@ export function createDashboardHandler(options: {
         }
       }
 
+      if (pathname === '/api/tasks/remind-now' || pathname === '/api/tasks/trigger-reminder') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          const taskId = Number(body?.taskId);
+          if (!taskId || isNaN(taskId) || taskId <= 0) {
+            return Response.json(
+              { error: 'INVALID_TASK_ID' },
+              { status: 400, headers: secureHeaders('application/json; charset=utf-8') }
+            );
+          }
+
+          const result = options.sendReminder
+            ? await options.sendReminder(taskId)
+            : await triggerTaskReminder(options.db, taskId);
+
+          if (!result.success) {
+            const statusCode =
+              result.error === 'TASK_NOT_FOUND'
+                ? 404
+                : result.error === 'TASK_ALREADY_CLOSED'
+                ? 409
+                : result.error === 'WHATSAPP_NOT_CONNECTED'
+                ? 503
+                : 400;
+            return Response.json(
+              { error: result.error || 'FAILED_TO_SEND_REMINDER' },
+              { status: statusCode, headers: secureHeaders('application/json; charset=utf-8') }
+            );
+          }
+
+          return Response.json(
+            { success: true, taskId, messageId: result.messageId },
+            { headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_TRIGGER_REMINDER' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
+      }
+
       if (pathname === '/api/crons/digest/toggle') {
         try {
           const body = (await request.json().catch(() => ({}))) as any;
@@ -1257,6 +1313,7 @@ export function startDashboardServer(options: {
   username: string;
   password: string;
   db: any;
+  sendReminder?: (taskId: number) => Promise<{ success: boolean; messageId?: string; error?: string }>;
 }): ReturnType<typeof Bun.serve> | null {
   if (!options.enabled) return null;
   if (!options.username || options.password.length < 16) {
@@ -1267,6 +1324,7 @@ export function startDashboardServer(options: {
     password: options.password,
     snapshot: () => buildDashboardSnapshot(options.db),
     db: options.db,
+    sendReminder: options.sendReminder,
   });
   return Bun.serve({ hostname: options.host, port: options.port, fetch: handler });
 }

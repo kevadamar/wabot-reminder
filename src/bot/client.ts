@@ -11,9 +11,9 @@ import { config } from '../config/index.js';
 import { handleIncomingMessage, handleIncomingReaction, formatDateTime } from './handlers/router.js';
 import { checkAndDispatchReminders, generateReminderMessage } from '../services/reminder.js';
 import { db } from '../db/index.js';
-import { tasks } from '../db/schema.js';
+import { tasks, taskHistory } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { ensureUserSettings, getTaskAttachments } from '../services/task.js';
+import { ensureUserSettings, getTaskAttachments, linkTaskMessage } from '../services/task.js';
 import { getAttachmentBuffer } from '../services/media.js';
 import { ensureAuthDirectory, saveCredentialsSafely } from './auth.js';
 import { dispatchMorningDigests } from '../services/morning-digest.js';
@@ -307,4 +307,107 @@ export async function startBot() {
   activeSchedulerInterval = setInterval(runSchedulerCycle, 60 * 1000);
 
   return { sock, reminderInterval: activeSchedulerInterval };
+}
+
+/**
+ * Triggers a manual reminder for a task immediately.
+ * Usable from the dashboard manual reminder trigger action.
+ */
+export async function triggerTaskReminder(
+  db: any,
+  taskId: number,
+  customSend?: (userJid: string, content: any) => Promise<any>
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const taskList = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  const task = taskList[0];
+  if (!task) {
+    return { success: false, error: 'TASK_NOT_FOUND' };
+  }
+  if (task.status === 'resolved' || task.status === 'cancelled') {
+    return { success: false, error: 'TASK_ALREADY_CLOSED' };
+  }
+
+  const socketToUse = customSend ? null : currentSocket;
+  if (!customSend && (!socketToUse || runtimeHealth.whatsappStatus !== 'connected')) {
+    return { success: false, error: 'WHATSAPP_NOT_CONNECTED' };
+  }
+
+  const user = await ensureUserSettings(db, task.userJid);
+  const deadlineStr = task.deadline
+    ? formatDateTime(new Date(task.deadline), user.timezone)
+    : 'Tanpa deadline';
+
+  let parentTitle: string | null = null;
+  if (task.parentId) {
+    const parent = await db.select().from(tasks).where(eq(tasks.id, task.parentId)).limit(1);
+    parentTitle = parent[0]?.task ?? null;
+  }
+
+  const isOverdue = task.deadline ? new Date(task.deadline).getTime() < Date.now() : false;
+  const alertText = await generateReminderMessage(task, isOverdue, deadlineStr, undefined, parentTitle, {
+    userName: user.name,
+    isManualTrigger: true,
+  });
+
+  let sent: any = null;
+  const sendFn = customSend || ((jid: string, content: any) => socketToUse.sendMessage(jid, content));
+
+  try {
+    const attachments = await getTaskAttachments(db, task.id);
+    if (attachments.length > 0 && attachments[0]) {
+      const primary = attachments[0];
+      const buffer = await getAttachmentBuffer(primary.storagePath);
+      if (buffer) {
+        if (primary.fileType === 'image') {
+          sent = await sendFn(task.userJid, {
+            image: buffer,
+            caption: alertText,
+          });
+        } else if (primary.fileType === 'document') {
+          sent = await sendFn(task.userJid, {
+            document: buffer,
+            fileName: primary.fileName,
+            mimetype: primary.mimeType,
+            caption: alertText,
+          });
+        }
+      }
+    }
+  } catch (mediaErr: any) {
+    logger.warn({ err: mediaErr, taskId: task.id }, 'Manual reminder attachment error, falling back to text');
+  }
+
+  if (!sent) {
+    sent = await sendFn(task.userJid, { text: alertText });
+  }
+
+  const messageId = sent?.key?.id ?? null;
+  const newRemindedLevel = isOverdue ? 2 : 1;
+
+  await db
+    .update(tasks)
+    .set({
+      reminded: newRemindedLevel,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, task.id));
+
+  if (messageId) {
+    await linkTaskMessage(db, task.id, messageId);
+  }
+
+  await db.insert(taskHistory).values({
+    taskId: task.id,
+    userJid: task.userJid,
+    changeType: 'reminded',
+    fieldChanged: 'reminded',
+    oldValue: String(task.reminded),
+    newValue: String(newRemindedLevel),
+    rawInput: 'Dashboard Manual Trigger',
+    createdAt: new Date(),
+  });
+
+  telemetry.increment('reminder_dispatch_total', { type: 'manual', outcome: 'success' });
+
+  return { success: true, messageId: messageId ?? undefined };
 }

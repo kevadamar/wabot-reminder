@@ -66,4 +66,62 @@ describe('Seam 2: Dynamic & Human Reminder Messaging', () => {
     expect(msg).toContain('✅');
     expect(msg).toContain('❌');
   });
+
+  it('should instruct Gemini with playful anti-mager persona and user name for manual trigger', async () => {
+    let capturedPayload: any = null;
+    const mockGemini = {
+      models: {
+        generateContent: async (payload: any) => {
+          capturedPayload = payload;
+          return {
+            text: 'Halo kak Keva! 👋 Admin colek dikit nih… jangan biarkan jurus mager menang ya! Coba intip tugas *"Siapkan bahan presentasi roadmap"*, yuk tuntaskan sekarang! (Balas selesai / 1/2/3 / batal)',
+          };
+        },
+      },
+    };
+
+    const msg = await generateReminderMessage(
+      dummyTask,
+      true,
+      'Minggu, 27 Sep 17:00',
+      mockGemini as any,
+      null,
+      { userName: 'Keva', isManualTrigger: true }
+    );
+
+    expect(msg).toContain('Halo kak Keva!');
+    expect(capturedPayload.contents).toContain('Halo kak Keva!');
+    expect(capturedPayload.contents).toContain('PENGINGAT KHUSUS/MANUAL YANG DITRIGGER ADMIN DARI DASHBOARD');
+    expect(capturedPayload.contents.toLowerCase()).toContain('mager');
+  });
+
+  it('should fallback to playful anti-mager templates with user name on manual trigger', async () => {
+    const msgWithName = await generateReminderMessage(
+      dummyTask,
+      true,
+      'Minggu, 27 Sep 17:00',
+      null,
+      null,
+      { userName: 'Keva', isManualTrigger: true }
+    );
+
+    expect(msgWithName).toContain('Halo kak Keva!');
+    expect(msgWithName).toContain('Siapkan bahan presentasi roadmap');
+    expect(msgWithName.toLowerCase()).toMatch(/admin|mager|anti-mager|rebahan/);
+    expect(msgWithName).toContain('selesai');
+    expect(msgWithName).toContain('batal');
+
+    // Without user name, should default to 'Halo kak!'
+    const msgWithoutName = await generateReminderMessage(
+      dummyTask,
+      true,
+      'Minggu, 27 Sep 17:00',
+      null,
+      null,
+      { userName: null, isManualTrigger: true }
+    );
+    expect(msgWithoutName).toContain('Halo kak!');
+    expect(msgWithoutName).not.toContain('Halo kak null');
+    expect(msgWithoutName).toContain('Siapkan bahan presentasi roadmap');
+  });
 });
