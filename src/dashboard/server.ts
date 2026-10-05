@@ -808,11 +808,22 @@ export async function rescheduleDashboardTask(
   const existing = await db.select().from(tasks).where(eq(tasks.id, params.taskId)).limit(1);
   if (!existing || !existing[0]) return null;
   const task = existing[0];
+  let leadMinutes = params.leadMinutes;
+  if (!leadMinutes) {
+    const userRow = await db
+      .select({ lead: userSettings.leadReminderMinutes })
+      .from(userSettings)
+      .where(eq(userSettings.userJid, task.userJid))
+      .limit(1);
+    if (userRow[0]?.lead) {
+      leadMinutes = userRow[0].lead;
+    }
+  }
   return rescheduleTask(db, {
     taskId: params.taskId,
     userJid: task.userJid,
     newDeadline: params.newDeadline,
-    leadMinutes: params.leadMinutes,
+    leadMinutes,
     rawInput: 'Dashboard Admin Reschedule',
   });
 }

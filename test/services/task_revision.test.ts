@@ -156,4 +156,34 @@ describe('Task Revision & Audit Log', () => {
     expect(history.length).toBe(4); // create -> rename -> reschedule -> reschedule
     expect(history.map((h) => h.changeType)).toEqual(['create', 'rename', 'reschedule', 'reschedule']);
   });
+
+  it('should transition a pending_deadline (no deadline) task to pending when rescheduled with a new deadline', async () => {
+    const task = await createTask(db, {
+      userJid: testUserJid,
+      task: 'Tugas Tanpa Deadline Awal',
+      status: 'pending_deadline',
+    });
+
+    expect(task.status).toBe('pending_deadline');
+    expect(task.deadline).toBeNull();
+
+    const newDeadline = new Date(Date.now() + 24 * 3600 * 1000);
+    const res = await rescheduleTask(db, {
+      taskId: task.id,
+      userJid: testUserJid,
+      newDeadline,
+      leadMinutes: 15,
+      rawInput: 'Atur deadline baru',
+    });
+
+    expect(res).not.toBeNull();
+    expect(res?.updatedTask.status).toBe('pending');
+    expect(res?.updatedTask.deadline).not.toBeNull();
+    expect(new Date(res!.updatedTask.deadline!).getTime()).toBe(newDeadline.getTime());
+
+    // Verify history logs status transition and deadline change
+    const history = await getTaskHistory(db, task.id, testUserJid);
+    expect(history.some((h) => h.changeType === 'reschedule' && h.fieldChanged === 'deadline')).toBe(true);
+    expect(history.some((h) => h.changeType === 'reschedule' && h.fieldChanged === 'status' && h.oldValue === 'pending_deadline' && h.newValue === 'pending')).toBe(true);
+  });
 });

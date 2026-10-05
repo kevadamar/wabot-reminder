@@ -396,7 +396,7 @@ export async function rescheduleTask(
       deadline: params.newDeadline,
       remindAt,
       reminded: isFuture ? 0 : task.reminded,
-      status: task.status === 'cancelled' || task.status === 'resolved' ? 'pending' : task.status,
+      status: 'pending',
       updatedAt: new Date(),
     })
     .where(and(eq(tasks.id, params.taskId), eq(tasks.userJid, params.userJid)))
@@ -413,6 +413,18 @@ export async function rescheduleTask(
       newValue: params.newDeadline.toISOString(),
       rawInput: params.rawInput ?? null,
     });
+
+    if (task.status !== 'pending') {
+      await db.insert(taskHistory).values({
+        taskId: updatedTask.id,
+        userJid: params.userJid,
+        changeType: 'reschedule',
+        fieldChanged: 'status',
+        oldValue: task.status,
+        newValue: 'pending',
+        rawInput: params.rawInput ?? null,
+      });
+    }
   }
 
   return updatedTask ? { updatedTask, oldDeadline } : null;

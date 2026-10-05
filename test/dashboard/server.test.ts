@@ -362,6 +362,30 @@ describe('Monitoring dashboard HTTP boundary & user whitelist management', () =>
     const reschedData = (await reschedRes.json()) as any;
     expect(reschedData.success).toBe(true);
     expect(new Date(reschedData.updatedTask.deadline).toISOString()).toBe(newDeadline);
+
+    // TEST: Rescheduling a "No Deadline" (pending_deadline) task updates its status to 'pending'
+    const noDeadRes = await handler(
+      new Request('http://localhost/api/tasks/reschedule', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          taskId: noDeadlineTask!.id,
+          newDeadline,
+          leadMinutes: 15,
+        }),
+      })
+    );
+    expect(noDeadRes.status).toBe(200);
+    const noDeadData = (await noDeadRes.json()) as any;
+    expect(noDeadData.success).toBe(true);
+    expect(noDeadData.updatedTask.status).toBe('pending');
+    expect(new Date(noDeadData.updatedTask.deadline).toISOString()).toBe(newDeadline);
+
+    // Verify task detail reflects status: 'pending' and not 'pending_deadline'
+    const updatedDetailRes = await handler(new Request(`http://localhost/api/tasks/detail?id=${noDeadlineTask!.id}`, { headers: authHeaders }));
+    const updatedDetail = (await updatedDetailRes.json()) as any;
+    expect(updatedDetail.task.status).toBe('pending');
+    expect(updatedDetail.task.deadline).not.toBeNull();
   });
 
   it('monitors cron jobs and allows pausing dispatcher, disabling task reminders, and toggling digests', async () => {
