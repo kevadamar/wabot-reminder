@@ -20,7 +20,7 @@ import {
   updateUserName,
   updateLeadReminderMinutes,
 } from '../../services/task.js';
-import { parseTaskMessage, parseLocalTask, detectSentiment } from '../../services/nlp.js';
+import { parseTaskMessage, parseLocalTask, detectSentiment, isTimeOnlyExpression } from '../../services/nlp.js';
 import { calculateRemindAt } from '../../services/reminder.js';
 import { generateAffirmation } from '../../services/affirmation.js';
 import {
@@ -660,14 +660,28 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       const subtasks = subtaskMap.get(t.id) || [];
       const subCountBadge = subtasks.length > 0 ? ` (${subtasks.length} sub-tugas)` : '';
 
-      reply += `${counter}. [ID: ${t.id}] *${t.task}*${subCountBadge}\n   ${deadlineStr}\n`;
+      if (t.task.includes('\n')) {
+        const lines = t.task.split('\n');
+        const firstLine = lines[0];
+        const remaining = lines.slice(1).map((l) => `   ${l}`).join('\n');
+        reply += `${counter}. [ID: ${t.id}] *${firstLine}*${subCountBadge}\n${remaining}\n   ${deadlineStr}\n`;
+      } else {
+        reply += `${counter}. [ID: ${t.id}] *${t.task}*${subCountBadge}\n   ${deadlineStr}\n`;
+      }
 
       if (subtasks.length > 0) {
         subtasks.forEach((st) => {
           const stDeadline = st.deadline
             ? `(⏰ ${formatDateTime(new Date(st.deadline), user.timezone)})`
             : '';
-          reply += `   └─ [ID: ${st.id}] ⏳ ${st.task} ${stDeadline}\n`;
+          if (st.task.includes('\n')) {
+            const stLines = st.task.split('\n');
+            const stFirst = stLines[0];
+            const stRem = stLines.slice(1).map((l) => `      ${l}`).join('\n');
+            reply += `   └─ [ID: ${st.id}] ⏳ *${stFirst}* ${stDeadline}\n${stRem}\n`;
+          } else {
+            reply += `   └─ [ID: ${st.id}] ⏳ ${st.task} ${stDeadline}\n`;
+          }
         });
       }
       reply += '\n';
@@ -683,7 +697,14 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
         const stDeadline = st.deadline
           ? `(⏰ ${formatDateTime(new Date(st.deadline), user.timezone)})`
           : '';
-        reply += `• [ID: ${st.id}] ⏳ ${st.task} ${stDeadline}\n`;
+        if (st.task.includes('\n')) {
+          const stLines = st.task.split('\n');
+          const stFirst = stLines[0];
+          const stRem = stLines.slice(1).map((l) => `   ${l}`).join('\n');
+          reply += `• [ID: ${st.id}] ⏳ *${stFirst}* ${stDeadline}\n${stRem}\n`;
+        } else {
+          reply += `• [ID: ${st.id}] ⏳ ${st.task} ${stDeadline}\n`;
+        }
       });
       reply += '\n';
     }
@@ -1251,8 +1272,11 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       const updated = await updateTaskDeadline(db, pendingTask.id, localParsed.deadline, remindAt, trimmedText);
       if (updated) {
         const deadlineStr = formatDateTime(localParsed.deadline, user.timezone);
+        const updatedTaskFormatted = updated.task.includes('\n')
+          ? `📝 *Tugas:*\n${updated.task}`
+          : `📝 Tugas: *${updated.task}*`;
         const reply = await sock.sendMessage(remoteJid, {
-          text: `✅ *Waktu Disimpan!*\n📝 Tugas: *${updated.task}*\n⏰ Pengingat: *${deadlineStr}*\n\nAku akan ingatkan saat mendekati waktunya. Semangat! ✨${TASK_FOOTER_NOTE}`,
+          text: `✅ *Waktu Disimpan!*\n${updatedTaskFormatted}\n⏰ Pengingat: *${deadlineStr}*\n\nAku akan ingatkan saat mendekati waktunya. Semangat! ✨${TASK_FOOTER_NOTE}`,
         });
         if (reply?.key?.id) {
           await linkTaskMessage(db, updated.id, reply.key.id);
@@ -1304,6 +1328,16 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       return;
     }
 
+    const timeOnly = isTimeOnlyExpression(trimmedText);
+    if (timeOnly.isTimeOnly) {
+      console.log('⏰ [Time Only] Pengguna hanya menyebutkan jam tanpa tanggal/tugas, membalas santai dan interaktif.');
+      const displayName = user.name || msg.pushName || 'kak';
+      await sock.sendMessage(remoteJid, {
+        text: `Hi *${displayName}*! 👋 Kamu ingin set jam *${timeOnly.timeText}* ini ke hari ini atau setahun lagi nih? 😜\n\nEhh astaga, bercandaaa... ✌️ Jangan ngambek ya haha!\n\nBiar jadwalnya tepat sasaran, sebutkan juga harinya dan tugas apa yang mau diingatkan ya. Contohnya:\n• _"Hari ini ${timeOnly.timeText} <nama tugas>"_\n• _"Besok ${timeOnly.timeText} <nama tugas>"_\n\nAtau kalau kamu mau jadwalkan tugas yang belum ada waktunya, sebutkan nama tugasnya ya! ✨`,
+      });
+      return;
+    }
+
     console.log('💬 [Non-Task / Chit-Chat] Membalas pesan santai dan mengarahkan ke tugas.');
     await sock.sendMessage(remoteJid, {
       text: `Hehe santai dulu brad/kak! 😄 Belum nangkep ada tugas atau deadline dari pesan kamu tadi nih.\n\nAku asisten pengingat tugas & to-do list. Mau catat tugas baru (contoh: _"nanti jam 4 sore jemput adik"_), cek daftar tugas (*list*), atau butuh bantuan (*help*)? Langsung kasih tahu aku ya! ✨`,
@@ -1331,8 +1365,12 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     const suggestions = getDynamicTimeSuggestions(user.timezone, new Date());
     const suggestionList = suggestions.map((s, idx) => `${['1️⃣', '2️⃣', '3️⃣'][idx]} ${s.label}`).join('\n');
 
+    const pendingTaskFormatted = created.task.includes('\n')
+      ? `\n${created.task}`
+      : `\n"${created.task}"`;
+
     const reply = await sock.sendMessage(remoteJid, {
-      text: `📝 *Tugas Siap Dicatat!*\n"${created.task}"\n\nBiar tidak terlewat, kapan sebaiknya aku ingatkan tugas ini? Kamu bisa balas pesan ini dengan waktu yang pas (contoh: *besok jam 2 siang* atau *1 jam lagi*), atau cukup pilih opsi berikut:\n${suggestionList}${TASK_FOOTER_NOTE}`,
+      text: `📝 *Tugas Siap Dicatat!*${pendingTaskFormatted}\n\nBiar tidak terlewat, kapan sebaiknya aku ingatkan tugas ini? Kamu bisa balas pesan ini dengan waktu yang pas (contoh: *besok jam 2 siang* atau *1 jam lagi*), atau cukup pilih opsi berikut:\n${suggestionList}${TASK_FOOTER_NOTE}`,
     });
 
     if (reply?.key?.id) {
@@ -1382,8 +1420,12 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     cleanNote = '\n\n_(Tugasnya udah aku catat rapi ya, kata-kata kasarnya udah aku bersihin biar tetep adem dibaca haha 🧘‍♂️ Tetap semangat beresinnya! 💪)_';
   }
 
+  const taskFormatted = created.task.includes('\n')
+    ? `📝 *Tugas:*\n${created.task}`
+    : `📝: *${created.task}*`;
+
   const reply = await sock.sendMessage(remoteJid, {
-    text: `✅ *Tugas Dicatat!*\n📝: *${created.task}*\n⏰ Deadline: *${deadlineStr}*${reminderNote}${cleanNote}\n\nAku akan ingatkan mendekati waktu tersebut. Semangat!${TASK_FOOTER_NOTE}`,
+    text: `✅ *Tugas Dicatat!*\n${taskFormatted}\n⏰ Deadline: *${deadlineStr}*${reminderNote}${cleanNote}\n\nAku akan ingatkan mendekati waktu tersebut. Semangat!${TASK_FOOTER_NOTE}`,
   });
 
   if (reply?.key?.id) {

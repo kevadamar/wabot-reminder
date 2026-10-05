@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { parseTaskMessage } from '../../src/services/nlp.js';
+import { parseTaskMessage, cleanProfanity, isTimeOnlyExpression } from '../../src/services/nlp.js';
 import { config } from '../../src/config/index.js';
 
 describe('Seam 1: NLP Intent & Deadline Extraction', () => {
@@ -256,5 +256,67 @@ describe('Seam 1: NLP Intent & Deadline Extraction', () => {
     expect(r6.isTask).toBe(true);
     expect(r6.taskTitle).toBe('Kirim revisi desain');
     expect(r6.sentiment?.tone).toBe('frustrated');
+  });
+
+  it('should format multiline tasks and normalize bullet lists (*, -, ·, •) into standard bullets', async () => {
+    // 1. WhatsApp style asterisks with newlines
+    const inputWithAsterisks = `hari ini, jam 10.30 tanya:\n* mpc 1\n* mpc 2\n* mpc 3\n* mpc 4\n* wok owok`;
+    const r1 = await parseTaskMessage(inputWithAsterisks, {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r1.isTask).toBe(true);
+    expect(r1.taskTitle).toContain('tanya:');
+    expect(r1.taskTitle).toContain('• mpc 1');
+    expect(r1.taskTitle).toContain('• mpc 2');
+    expect(r1.taskTitle).toContain('• mpc 3');
+    expect(r1.taskTitle).toContain('• mpc 4');
+    expect(r1.taskTitle).toContain('• wok owok');
+    expect(r1.taskTitle).not.toContain('* mpc');
+
+    // 2. Middle dots with newlines
+    const inputWithDots = `hari ini, jam 10.30 tanya:\n· mpc 1\n· mpc 2`;
+    const r2 = await parseTaskMessage(inputWithDots, {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r2.isTask).toBe(true);
+    expect(r2.taskTitle).toContain('• mpc 1');
+    expect(r2.taskTitle).toContain('• mpc 2');
+
+    // 3. Single-line pseudo-bullets (e.g. "tanya: * mpc 1 * mpc 2")
+    const singleLineBullets = cleanProfanity('tanya: * mpc 1 * mpc 2 * mpc 3');
+    expect(singleLineBullets).toBe('tanya:\n• mpc 1\n• mpc 2\n• mpc 3');
+  });
+
+  it('should recognize tasks with 2-digit hour times without day keyword (e.g. jam 10.30 tanya:)', async () => {
+    const input = `jam 10.30 tanya:\n· mpc 1\n· mpc 2`;
+    const r = await parseTaskMessage(input, {
+      now: baseNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r.isTask).toBe(true);
+    expect(r.deadline).not.toBeNull();
+    expect(r.taskTitle).toContain('tanya:');
+    expect(r.taskTitle).toContain('• mpc 1');
+  });
+
+  it('should accurately detect time-only expressions with isTimeOnlyExpression', () => {
+    expect(isTimeOnlyExpression('jam 10.30').isTimeOnly).toBe(true);
+    expect(isTimeOnlyExpression('10.30').isTimeOnly).toBe(true);
+    expect(isTimeOnlyExpression('10:30').isTimeOnly).toBe(true);
+    expect(isTimeOnlyExpression('jam 10').isTimeOnly).toBe(true);
+    expect(isTimeOnlyExpression('pukul 15:00').isTimeOnly).toBe(true);
+    expect(isTimeOnlyExpression('jam 3 sore').isTimeOnly).toBe(true);
+    expect(isTimeOnlyExpression('pk 08.00').isTimeOnly).toBe(true);
+
+    // Negative cases
+    expect(isTimeOnlyExpression('jam 10.30 tanya ke bos').isTimeOnly).toBe(false);
+    expect(isTimeOnlyExpression('hari ini jam 10.30').isTimeOnly).toBe(false);
+    expect(isTimeOnlyExpression('besok jam 10.30').isTimeOnly).toBe(false);
+    expect(isTimeOnlyExpression('halo bot').isTimeOnly).toBe(false);
   });
 });

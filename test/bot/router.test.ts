@@ -875,4 +875,68 @@ describe('Seam 5: Message & Reaction Router', () => {
     expect(sentMessages[0]).toContain('Catatan Pengingat');
     expect(sentMessages[0]).toContain('alarmnya aku pasang pas tepat waktu deadline ya');
   });
+
+  it('should respond with playful banter when user sends time only without date or task', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Keva', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: 'MSG_TIME_ONLY' } };
+      },
+    };
+
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_TIME_ONLY' },
+      message: { conversation: 'jam 10.30' },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('Hi *Keva*!');
+    expect(sentMessages[0]).toContain('Kamu ingin set jam *jam 10.30* ini ke hari ini atau setahun lagi nih?');
+    expect(sentMessages[0]).toContain('Ehh astaga, bercandaaa...');
+    expect(sentMessages[0]).not.toContain('Belum nangkep');
+  });
+
+  it('should properly record and format multiline bullet lists in confirmation and list command', async () => {
+    await ensureUserSettings(db, allowedUserJid, 'Keva', true);
+
+    const sentMessages: string[] = [];
+    const mockSock = {
+      sendMessage: async (_jid: string, content: any) => {
+        sentMessages.push(content.text);
+        return { key: { id: `MSG_${sentMessages.length}` } };
+      },
+    };
+
+    const inputMsg = `hari ini, jam 23.59 tanya:\n* mpc 1\n* mpc 2\n* mpc 3\n* mpc 4\n* wok owok`;
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_BULLETS' },
+      message: { conversation: inputMsg },
+    });
+
+    expect(sentMessages.length).toBe(1);
+    expect(sentMessages[0]).toContain('✅ *Tugas Dicatat!*');
+    expect(sentMessages[0]).toContain('📝 *Tugas:*');
+    expect(sentMessages[0]).toContain('• mpc 1');
+    expect(sentMessages[0]).toContain('• mpc 2');
+    expect(sentMessages[0]).toContain('• mpc 3');
+    expect(sentMessages[0]).toContain('• mpc 4');
+    expect(sentMessages[0]).toContain('• wok owok');
+    // Verify no ugly raw * mpc single line
+    expect(sentMessages[0]).not.toContain('tanya: * mpc 1 * mpc 2');
+
+    // Test /list formatting
+    await handleIncomingMessage(mockSock as any, {
+      key: { remoteJid: allowedUserJid, id: 'CMD_LIST' },
+      message: { conversation: 'list' },
+    });
+
+    expect(sentMessages.length).toBe(2);
+    expect(sentMessages[1]).toContain('📋 *Daftar Tugas Aktif:*');
+    expect(sentMessages[1]).toContain('*tanya:*');
+    expect(sentMessages[1]).toContain('   • mpc 1');
+    expect(sentMessages[1]).toContain('   • mpc 2');
+  });
 });

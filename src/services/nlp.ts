@@ -31,7 +31,9 @@ export interface ParseOptions {
 
 export const GREETINGS_REGEX = /^(halo|hai|hey|p|ping|assalamualaikum|tes|test|pagi|siang|sore|malam|selamat pagi|selamat siang|selamat sore|selamat malam|makasih|terima kasih|thanks|thank you|ok|oke|siap|baik)\b/i;
 
-export const TASK_VERBS_REGEX = /\b(beli|bayar|kirim|kerjakan|rapat|meeting|telpon|telepon|hubungi|call|transfer|catat|ingat|ingatkan|bikin|buat|periksa|cek|bereskan|beresin|ambil|jemput|selesaikan|baca|tulis|submit|upload|download|presentasi|facial|service|servis|olahraga|gym|lari|belanja|jadwal)\b/i;
+export const TASK_VERBS_REGEX = /\b(beli|bayar|kirim|kerjakan|rapat|meeting|telpon|telepon|hubungi|call|transfer|catat|ingat|ingatkan|bikin|buat|periksa|cek|bereskan|beresin|ambil|jemput|selesaikan|baca|tulis|submit|upload|download|presentasi|facial|service|servis|olahraga|gym|lari|belanja|jadwal|tanya|tanyakan|tanyain|follow\s*up|followup|chat|wa|whatsapp|kabari|kabarin)\b/i;
+
+export const TIME_KEYWORDS_REGEX = /\b(besok|lusa|kemarin|hari\s*ini|malam\s*ini|siang\s*ini|sore\s*ini|pagi\s*ini|nanti(?:\s*(?:malam|sore|siang|pagi))?|minggu\s*depan|bulan\s*depan|deadline|tenggat|(?:jam|pukul|pk)\s*\d{1,2}(?:[:.]\d{2})?|[01]?\d[:.][0-5]\d)\b/i;
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -61,7 +63,7 @@ export function detectSentiment(text: string): SentimentResult {
   const isFrustrated = FRUSTRATION_REGEX.test(text);
 
   const hasTaskVerb = TASK_VERBS_REGEX.test(text);
-  const hasTimeKeyword = /\b(besok|nanti|jam\s*\d|pukul|deadline|hari ini|minggu depan|lusa)\b/i.test(text);
+  const hasTimeKeyword = TIME_KEYWORDS_REGEX.test(text);
   const isToxicOnly = hasProfanity && !hasTaskVerb && !hasTimeKeyword && !isDistress;
 
   let tone: SentimentResult['tone'] = 'neutral';
@@ -79,15 +81,48 @@ export function detectSentiment(text: string): SentimentResult {
 }
 
 /**
- * Cleans profanity and offensive words from task titles.
+ * Cleans profanity and offensive words from task titles while preserving newlines and bullet formatting.
  */
 export function cleanProfanity(text: string): string {
   PROFANITY_REGEX.lastIndex = 0;
-  return text
-    .replace(PROFANITY_REGEX, '')
-    .replace(/\s+/g, ' ')
-    .replace(/^[-:., ]+|[-:., ]+$/g, '')
-    .trim();
+  let cleaned = text.replace(PROFANITY_REGEX, '');
+
+  // If text contains inline asterisks or middle dots used as pseudo-bullets on a single line
+  // e.g. "tanya: * mpc 1 * mpc 2" or "tanya: · mpc 1 · mpc 2"
+  if (!cleaned.includes('\n') && /[:]\s+[*·•\-]\s+/i.test(cleaned)) {
+    cleaned = cleaned.replace(/([:])\s+[*·•\-]\s+/g, '$1\n• ');
+    cleaned = cleaned.replace(/\s+[*·•\-]\s+/g, '\n• ');
+  }
+
+  // Preserve newlines, normalize horizontal whitespace on each line, and format bullets
+  const lines = cleaned.split(/\r?\n/).map((line) => {
+    let l = line.replace(/[^\S\r\n]+/g, ' ').trim();
+    // Normalize bullet list markers at the start of a line (*, -, ·, +, •) to standard bullet (•)
+    if (/^[*\-·+•]\s+/.test(l)) {
+      l = '• ' + l.replace(/^[*\-·+•]\s+/, '').trim();
+    } else {
+      l = l.replace(/^[-:., ]+/g, '').replace(/[-., ]+$/g, '').trim();
+    }
+    return l;
+  });
+
+  while (lines.length > 0 && lines[0] === '') lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+
+  return lines.join('\n');
+}
+
+/**
+ * Checks whether an incoming message is purely / primarily a time-of-day specification
+ * without any date, day, or task content.
+ */
+export function isTimeOnlyExpression(text: string): { isTimeOnly: boolean; timeText: string } {
+  const trimmed = text.trim();
+  const timeOnlyRegex = /^(?:pada\s+|di\s+)?(?:jam|pukul|pk)?\s*([01]?\d|2[0-3])(?:[:.]([0-5]\d))?\s*(?:pagi|siang|sore|malam|subuh|wib|wita|wit)?$/i;
+  if (timeOnlyRegex.test(trimmed)) {
+    return { isTimeOnly: true, timeText: trimmed };
+  }
+  return { isTimeOnly: false, timeText: '' };
 }
 
 /**
@@ -167,7 +202,7 @@ export function normalizeIndonesianTimePhrases(text: string): string {
     if ((p.toLowerCase() === 'siang' && hour < 12) || p.toLowerCase() === 'sore' || p.toLowerCase() === 'malam') {
       if (hour < 12) hour += 12;
     }
-    return `at ${hour}:${m}`;
+    return `at ${hour}:${m} `;
   });
 
   normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})\s*(siang|sore|malam)\b/gi, (_, _k, h, p) => {
@@ -175,23 +210,23 @@ export function normalizeIndonesianTimePhrases(text: string): string {
     if ((p.toLowerCase() === 'siang' && hour < 12) || p.toLowerCase() === 'sore' || p.toLowerCase() === 'malam') {
       if (hour < 12) hour += 12;
     }
-    return `at ${hour}:00`;
+    return `at ${hour}:00 `;
   });
 
   normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})[:.](\d{2})\s*(pagi|subuh)?\b/gi, (_, _k, h, m) => {
-    return `at ${h}:${m}`;
+    return `at ${h}:${m} `;
   });
 
   normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})\s*(pagi|subuh)\b/gi, (_, _k, h) => {
-    return `at ${h}:00 AM`;
+    return `at ${h}:00 AM `;
   });
 
   normalized = normalized.replace(/\b(jam|pukul|pk)\s*(\d{1,2})\b/gi, (_, _k, h) => {
-    return `at ${h}:00`;
+    return `at ${h}:00 `;
   });
 
   // Standalone 14.00 or 14:00 without "jam" prefix (avoid duplicate "at" if already converted)
-  normalized = normalized.replace(/(?<!at\s+)\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*(wib|wita|wit)?\b/gi, 'at $1:$2');
+  normalized = normalized.replace(/(?<!at\s+)\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*(wib|wita|wit)?\b/gi, 'at $1:$2 ');
 
   return normalized;
 }
@@ -316,8 +351,8 @@ export function parseLocalTask(text: string, now: Date = new Date(), timezone = 
     taskTitle = taskTitle.replace(/\b\d+\s*(menit|jam|hari)\s*lagi\b/gi, ' ');
     taskTitle = taskTitle.replace(/\b(pada|di|untuk|tgl|tanggal)\b/gi, ' ');
 
-    // Clean extra punctuation, leading dots, commas, colons, and extra whitespace
-    taskTitle = cleanProfanity(taskTitle.replace(/^[-:., ]+|[-:., ]+$/g, '').replace(/\s+/g, ' ').trim());
+    // Clean extra punctuation, leading dots, commas, colons, and whitespace while preserving newlines
+    taskTitle = cleanProfanity(taskTitle);
     const sentiment = detectSentiment(trimmed);
 
     const finalTaskTitle = taskTitle || '';
@@ -421,7 +456,7 @@ export async function parseTaskMessage(text: string, options: ParseOptions = {})
 
     // If not forwarded and no explicit /todo, check for task verbs or temporal words
     const hasTaskVerb = TASK_VERBS_REGEX.test(trimmed);
-    const hasTimeKeyword = /\b(besok|nanti|jam\s*\d|pukul|deadline|hari ini|minggu depan|lusa)\b/i.test(trimmed);
+    const hasTimeKeyword = TIME_KEYWORDS_REGEX.test(trimmed);
 
     if (!hasTaskVerb && !hasTimeKeyword) {
       return {
@@ -447,8 +482,8 @@ Instruksi:
    - "frustrated": jika pengguna mengekspresikan kekesalan/stres namun tetap menyebutkan tugas yang ingin dikerjakan.
    - "neutral": jika pesan wajar atau to-do biasa.
    - "positive": jika pesan ceria, antusias, atau berterima kasih.
-3. Bersihkan judul tugas dari kata penunjuk waktu, frasa permintaan pengingat, dan kata makian/umpatan jika ada (taskTitle).
-4. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z"). Jika pengguna hanya menyebutkan nama hari (seperti "senin", "selasa") tanpa kata penunjuk lampau ("lalu"/"kemarin"), selalu asumsikan hari tersebut adalah hari terdekat di MASA DEPAN (akan datang).
+3. Bersihkan judul tugas dari kata penunjuk waktu, frasa permintaan pengingat, dan kata makian/umpatan jika ada (taskTitle). PENTING: Jika pengguna menuliskan tugas dalam bentuk rincian/poin (bullet list) atau multi-baris (contoh ada baris baru '\\n' atau simbol '•', '*', '-', '·'), WAJIB pertahankan baris baru dan struktur daftarnya (gunakan bullet '• ' di setiap awal baris poin). Jangan pernah menggabungkan rincian poin menjadi satu baris datar!
+4. Jika pengguna menyebutkan waktu/tenggat waktu (deadline) baik spesifik maupun relatif, ekstrak dan hitung menjadi format ISO 8601 UTC string (contoh: "2026-09-27T07:00:00.000Z"). Jika pengguna hanya menyebutkan jam (misalnya "jam 10.30") tanpa menyebutkan hari/tanggal: jika jam tersebut belum lewat hari ini (dibanding Reference Time), gunakan waktu HARI INI; jika sudah lewat, gunakan waktu BESOK. Jika pengguna hanya menyebutkan nama hari (seperti "senin", "selasa") tanpa kata penunjuk lampau ("lalu"/"kemarin"), selalu asumsikan hari tersebut adalah hari terdekat di MASA DEPAN (akan datang).
 5. ATURAN WAJIB: Jika pengguna TIDAK menyebutkan keterangan tanggal, hari, jam, atau waktu sama sekali, JANGAN PERNAH berasumsi, menebak, atau menentukan sendiri batas waktunya! Isi deadline: null dan needsDeadline: true.
 6. Jika pengguna secara eksplisit meminta waktu pengingat awal (contoh: "ingatkan 30 menit sebelumnya", "ingatkan 1 jam sebelum", "remind me 15 mins before", "ingatkan H-1"), hitung dan ekstrak durasinya dalam satuan menit integer (contoh: 30, 60, 120, 1440) ke field reminderLeadMinutes. Jika pengguna TIDAK meminta waktu pengingat khusus, isi reminderLeadMinutes: null.
 
