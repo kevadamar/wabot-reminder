@@ -96,6 +96,44 @@ interface RequestTrace {
   output: string | null;
   exitCode: number | null;
   stderr: string;
+  deniedActions: string[];
+  totalTokens: number | null;
+}
+
+/** Headless agy auto-denies tools and then answers with nothing, so ask it to answer from the text alone. */
+const NO_TOOLS_TEXT =
+  'Jawab langsung hanya dari teks di bawah. Jangan menjalankan perintah, membuka URL, mencari di web, atau mengubah file.';
+const NO_TOOLS_VISION =
+  'Jawab langsung dari teks dan file gambar yang disebutkan. Selain membaca file gambar itu, jangan menjalankan perintah, membuka URL, mencari di web, atau mengubah file.';
+
+type AgyUsage = { promptTokens?: number; outputTokens?: number; thoughtTokens?: number; totalTokens?: number };
+
+/** Reads `agy --output-format json`; falls back to plain text for CLIs that print text only. */
+function parseAgyOutput(raw: string): { text: string; deniedActions: string[]; usage: AgyUsage | null } {
+  const trimmed = raw.trim();
+  try {
+    const body = JSON.parse(trimmed) as {
+      response?: unknown;
+      denied_actions?: { action?: unknown }[];
+      usage?: Record<string, unknown>;
+    };
+    if (body && typeof body === 'object' && typeof body.response === 'string') {
+      const num = (value: unknown) => (typeof value === 'number' ? value : undefined);
+      const usage = body.usage
+        ? {
+            promptTokens: num(body.usage.input_tokens),
+            outputTokens: num(body.usage.output_tokens),
+            thoughtTokens: num(body.usage.thinking_tokens),
+            totalTokens: num(body.usage.total_tokens),
+          }
+        : null;
+      const deniedActions = (body.denied_actions ?? [])
+        .map((item) => (typeof item?.action === 'string' ? item.action : ''))
+        .filter((action) => /^[a-z_]{1,32}$/i.test(action));
+      return { text: body.response.trim(), deniedActions, usage };
+    }
+  } catch {}
+  return { text: trimmed, deniedActions: [], usage: null };
 }
 
 const REQUEST_ID = /^[A-Za-z0-9._-]{1,64}$/;
@@ -107,7 +145,16 @@ export async function handleBridgeRequest(req: Request, deps: BridgeDeps): Promi
   }
   const presentedId = req.headers.get('x-request-id') ?? '';
   const requestId = REQUEST_ID.test(presentedId) ? presentedId : `bridge-${randomBytes(4).toString('hex')}`;
-  const trace: RequestTrace = { prompt: '', imageCount: 0, imageBytes: 0, output: null, exitCode: null, stderr: '' };
+  const trace: RequestTrace = {
+    prompt: '',
+    imageCount: 0,
+    imageBytes: 0,
+    output: null,
+    exitCode: null,
+    stderr: '',
+    deniedActions: [],
+    totalTokens: null,
+  };
   const started = Date.now();
   const response = await processRequest(req, url, deps, trace);
   response.headers.set('x-request-id', requestId);
@@ -127,6 +174,8 @@ export async function handleBridgeRequest(req: Request, deps: BridgeDeps): Promi
   if (trace.prompt) parts.push(`prompt ${trace.prompt.length}c`);
   if (trace.imageCount) parts.push(`${trace.imageCount} gambar (${Math.max(1, Math.round(trace.imageBytes / 1024))} KB)`);
   if (trace.output !== null) parts.push(`output ${trace.output.length}c`);
+  if (trace.totalTokens !== null) parts.push(`tokens ${trace.totalTokens}`);
+  if (trace.deniedActions.length) parts.push(`tool ditolak: ${trace.deniedActions.join(', ')}`);
   if (trace.exitCode !== null && (trace.exitCode !== 0 || !response.ok)) {
     const stderr = redactForLog(trace.stderr.replace(/\s+/g, ' ').trim(), 300);
     parts.push(`exit ${trace.exitCode}`, `stderr: ${stderr || '(kosong)'}`);
@@ -181,7 +230,7 @@ async function processRequest(req: Request, url: URL, deps: BridgeDeps, trace: R
   deps.state.inFlight += 1;
   let imageDir: string | null = null;
   try {
-    const command = ['agy', '-p', prompt, '--output-format', 'text'];
+    const command = ['agy', '-p', `${NO_TOOLS_TEXT}\n\n${prompt}`, '--output-format', 'json'];
     if (images.length > 0) {
       imageDir = await mkdtemp(join(tmpdir(), 'agy-vision-'));
       const paths: string[] = [];
@@ -190,7 +239,7 @@ async function processRequest(req: Request, url: URL, deps: BridgeDeps, trace: R
         await writeFile(path, image.bytes, { mode: 0o600 });
         paths.push(path);
       }
-      command[2] = `${prompt}\n\nBuka dan analisis file gambar berikut (jangan ubah atau jalankan apa pun):\n${paths.map((p) => `- ${p}`).join('\n')}`;
+      command[2] = `${NO_TOOLS_VISION}\n\n${prompt}\n\nBuka dan analisis file gambar berikut (jangan ubah atau jalankan apa pun):\n${paths.map((p) => `- ${p}`).join('\n')}`;
       command.push('--add-dir', imageDir);
     }
 
@@ -213,12 +262,16 @@ async function processRequest(req: Request, url: URL, deps: BridgeDeps, trace: R
       trace.stderr = errOutput;
       return Response.json({ error: 'cli_failed' }, { status: 502 });
     }
-    trace.output = output.trim();
-    if (!trace.output) {
+    const parsed = parseAgyOutput(output);
+    trace.output = parsed.text;
+    trace.deniedActions = parsed.deniedActions;
+    trace.totalTokens = parsed.usage?.totalTokens ?? null;
+    if (!parsed.text) {
       trace.stderr = errOutput;
-      return Response.json({ error: 'empty_output' }, { status: 502 });
+      const error = parsed.deniedActions.length ? `tool_denied:${parsed.deniedActions.join(',')}` : 'empty_output';
+      return Response.json({ error }, { status: 502 });
     }
-    return Response.json({ text: trace.output });
+    return Response.json(parsed.usage ? { text: parsed.text, usage: parsed.usage } : { text: parsed.text });
   } catch {
     return Response.json({ error: 'timeout' }, { status: 504 });
   } finally {

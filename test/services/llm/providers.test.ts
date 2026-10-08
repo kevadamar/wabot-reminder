@@ -205,6 +205,35 @@ describe('Antigravity provider', () => {
     expect(err.detail).toBe('cli_failed');
   });
 
+  it('treats the bridge empty_output error as invalid output so the chain does not retry it', async () => {
+    const fetchImpl = async () => Response.json({ error: 'empty_output' }, { status: 502 });
+    const provider = createAntigravityProvider({ url: 'http://10.0.0.5:7860', token: '', timeoutMs: 1000, fetchImpl });
+    const err = await provider
+      .generate({ operation: 'affirmation', system: 's', userContent: 'u', maxOutputTokens: 10, signal })
+      .catch((e) => e);
+    expect(err.kind).toBe('invalid_output');
+    expect(err.status).toBe(502);
+    expect(err.detail).toBe('empty_output');
+  });
+
+  it('does not retry a denied agent tool either', async () => {
+    const fetchImpl = async () => Response.json({ error: 'tool_denied:command' }, { status: 502 });
+    const provider = createAntigravityProvider({ url: 'http://10.0.0.5:7860', token: '', timeoutMs: 1000, fetchImpl });
+    const err = await provider
+      .generate({ operation: 'affirmation', system: 's', userContent: 'u', maxOutputTokens: 10, signal })
+      .catch((e) => e);
+    expect(err.kind).toBe('invalid_output');
+    expect(err.detail).toBe('tool_denied:command');
+  });
+
+  it('passes the bridge token usage through', async () => {
+    const fetchImpl = async () =>
+      Response.json({ text: 'ok', usage: { promptTokens: 16392, outputTokens: 18, totalTokens: 16410 } });
+    const provider = createAntigravityProvider({ url: 'http://10.0.0.5:7860', token: '', timeoutMs: 1000, fetchImpl });
+    const result = await provider.generate({ operation: 'affirmation', system: 's', userContent: 'u', maxOutputTokens: 10, signal });
+    expect(result.usage).toEqual({ promptTokens: 16392, outputTokens: 18, totalTokens: 16410 });
+  });
+
   it('explains an empty bridge reply in the error detail', async () => {
     const fetchImpl = async () => Response.json({ text: '' });
     const provider = createAntigravityProvider({ url: 'http://10.0.0.5:7860', token: '', timeoutMs: 1000, fetchImpl });

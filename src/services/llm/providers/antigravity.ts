@@ -1,5 +1,5 @@
 import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter, transportError } from '../errors.js';
-import type { LlmProvider, LlmRequest, LlmResult } from '../types.js';
+import type { LlmProvider, LlmRequest, LlmResult, TokenUsage } from '../types.js';
 
 export function createAntigravityProvider(options: {
   url: string;
@@ -41,12 +41,14 @@ export function createAntigravityProvider(options: {
       if (!response.ok) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
         const detail = await errorDetailFrom(response, [options.token]);
-        throw new LlmError(kindFromStatus(response.status, retryAfter !== undefined), response.status, retryAfter, {
+        const agentGaveNoAnswer = detail === 'empty_output' || detail?.startsWith('tool_denied');
+        const kind = agentGaveNoAnswer ? 'invalid_output' : kindFromStatus(response.status, retryAfter !== undefined);
+        throw new LlmError(kind, response.status, retryAfter, {
           detail,
           providerRequestId,
         });
       }
-      const data = (await response.json()) as { text?: string };
+      const data = (await response.json()) as { text?: string; usage?: TokenUsage };
       const text = data.text?.trim() || '';
       if (!text) {
         throw new LlmError('invalid_output', undefined, undefined, {
@@ -54,7 +56,7 @@ export function createAntigravityProvider(options: {
           detail: 'Bridge membalas teks kosong (cek stderr agy di log bridge)',
         });
       }
-      return { text, providerRequestId };
+      return data.usage ? { text, usage: data.usage, providerRequestId } : { text, providerRequestId };
     },
   };
 }
