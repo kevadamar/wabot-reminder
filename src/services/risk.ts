@@ -265,7 +265,7 @@ function cleanLlmReason(reason: string | null): string | null {
 export function mergeRisk(local: RiskAssessment, llm?: LlmRiskVerdict | null): RiskAssessment {
   if (!llm || llm.category === 'none' || !RISK_CATEGORIES.includes(llm.category)) return local;
   const categories = RISK_CATEGORIES.filter((c) => c === llm.category || local.categories.includes(c));
-  const reason = `Analisis AI: ${cleanLlmReason(llm.reason) ?? 'pola pesannya mirip modus yang sering merugikan'}`;
+  const reason = `Menurut penerawangan-kuh: ${cleanLlmReason(llm.reason) ?? 'pola pesannya mirip modus yang sering merugikan'}`;
   return { flagged: true, categories, reasons: [...local.reasons, reason] };
 }
 
