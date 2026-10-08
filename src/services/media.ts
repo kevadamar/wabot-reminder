@@ -10,8 +10,10 @@ import {
   HeadBucketCommand,
   CreateBucketCommand,
 } from '@aws-sdk/client-s3';
-import { GoogleGenAI } from '@google/genai';
 import { config } from '../config/index.js';
+import { isolatedDeps, productionDeps, runChain } from './llm/chain.js';
+import { providersForOperation } from './llm/registry.js';
+import { VISION_JSON_SCHEMA, parseVisionModelOutput, type VisionModelOutput } from './llm/schemas.js';
 
 export interface FileValidationResult {
   isValid: boolean;
@@ -180,90 +182,46 @@ export function sanitizeDocumentBuffer(buffer: Buffer, mimeType: string, extensi
   };
 }
 
-let defaultGeminiClient: any = null;
-function getGeminiClient() {
-  if (!defaultGeminiClient && config.geminiApiKey) {
-    defaultGeminiClient = new GoogleGenAI({ apiKey: config.geminiApiKey });
-  }
-  return defaultGeminiClient;
-}
+const SAFE_SCREEN: VisionModelOutput = {
+  isSuspicious: false,
+  safetyReason: null,
+  ocrText: '',
+  isTask: false,
+  taskTitle: '',
+  suggestedDeadline: null,
+};
 
 /**
- * Multimodal AI Screening: Checks for scam/fraud/phishing & performs OCR task extraction (Layer 4)
+ * Multimodal AI Screening: Checks for scam/fraud/phishing & performs OCR task extraction (Layer 4).
+ * If every vision provider fails, the result fails open: the image is not marked suspicious.
  */
 export async function screenAndExtractImageWithAI(
   buffer: Buffer,
   mimeType = 'image/jpeg',
   customClient?: any
 ): Promise<AIScreeningResult> {
-  const gemini = customClient !== undefined ? customClient : getGeminiClient();
-
-  if (!gemini) {
-    return {
-      isSuspicious: false,
-      safetyReason: null,
-      ocrText: '',
-      isTask: false,
-    };
-  }
-
-  const prompt = `Analisis gambar berikut untuk keperluan asisten to-do WhatsApp pribadi.
+  const override = customClient !== undefined ? { geminiClient: customClient } : undefined;
+  const providers = providersForOperation('vision_screen', override);
+  const deps = override ? isolatedDeps('vision_screen', providers) : productionDeps('vision_screen', providers);
+  const chained = await runChain(
+    'vision_screen',
+    {
+      system: `Analisis gambar berikut untuk keperluan asisten to-do WhatsApp pribadi.
 Instruksi:
 1. Periksa Keamanan: Apakah gambar ini mengandung indikasi penipuan, bukti transfer perbankan palsu/manipulasi, ajakan instalasi APK berbahaya, atau modus scam/phishing? (isSuspicious: true/false, safetyReason: string | null).
 2. Lakukan OCR: Baca teks penting di dalam gambar (struk, invoice, tiket, jadwal rapat, papan tulis).
 3. Ekstraksi Tugas: Tentukan apakah gambar ini mengindikasikan sebuah tugas yang perlu diselesaikan (isTask: true/false, taskTitle: string, suggestedDeadline: ISO string atau null).
-
-Balas HANYA dengan JSON valid tanpa markdown formatting:
-{"isSuspicious": boolean, "safetyReason": string | null, "ocrText": string, "isTask": boolean, "taskTitle": string, "suggestedDeadline": string | null}`;
-
-  try {
-    const base64Data = buffer.toString('base64');
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Gemini Vision API timeout (4s)')), 4000)
-    );
-
-    const response: any = await Promise.race([
-      gemini.models.generateContent({
-        model: config.geminiModel,
-        contents: [
-          prompt,
-          {
-            inlineData: {
-              data: base64Data,
-              mimeType,
-            },
-          },
-        ],
-        config: {
-          thinkingConfig: {
-            thinkingLevel: config.geminiThinkingLevel as any,
-          },
-        },
-      }),
-      timeoutPromise,
-    ]);
-
-    const responseText = response.text?.trim() || '';
-    const cleanedJson = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanedJson);
-
-    return {
-      isSuspicious: Boolean(parsed.isSuspicious),
-      safetyReason: parsed.safetyReason || null,
-      ocrText: parsed.ocrText || '',
-      isTask: Boolean(parsed.isTask),
-      taskTitle: parsed.taskTitle || '',
-      suggestedDeadline: parsed.suggestedDeadline || null,
-    };
-  } catch (err: any) {
-    console.warn(`[MediaAI] Gemini Vision analysis error (${err?.message || err}), menggunakan fallback aman...`);
-    return {
-      isSuspicious: false,
-      safetyReason: null,
-      ocrText: '',
-      isTask: false,
-    };
-  }
+Balas HANYA dengan JSON valid tanpa markdown.`,
+      userContent: 'Gambar terlampir.',
+      images: [{ data: buffer, mimeType }],
+      jsonSchema: VISION_JSON_SCHEMA as unknown as Record<string, unknown>,
+      maxOutputTokens: 1024,
+    },
+    (text) => parseVisionModelOutput(text),
+    () => SAFE_SCREEN,
+    deps
+  );
+  return chained.value;
 }
 
 let s3ClientInstance: S3Client | null = null;

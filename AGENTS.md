@@ -18,7 +18,7 @@ Instructions, architecture pointers, and coding conventions for AI agents workin
 - **Runtime**: Bun (`bun v1.2+`). Default to Bun APIs over Node.js equivalents.
 - **WhatsApp Library**: `@whiskeysockets/baileys` (v7 Native ESM).
 - **Database**: PostgreSQL 16 via `drizzle-orm` and `postgres.js`.
-- **NLP / AI**: `@google/genai` (Gemini 1.5 Flash) with `chrono-node` local fallback.
+- **NLP / AI**: configurable provider chain (`src/services/llm/`). Gemini via `@google/genai`, OpenAI-compatible and Anthropic via `fetch`, Antigravity bridge, then `chrono-node` local fallback.
 - **Testing**: `bun:test` built-in test runner.
 
 ---
@@ -50,10 +50,10 @@ bun run db:generate
 
 All new features and bug fixes must respect the 5 pre-agreed architectural seams:
 
-1. **Seam 1 (`src/services/nlp.ts`)**: Task intent and temporal extraction. Always preserve the two-tier structure: try Gemini first, catch errors, and gracefully fall back to `parseLocalTask`.
+1. **Seam 1 (`src/services/nlp.ts`)**: Task intent and temporal extraction. Try the configured LLM chain (`LLM_CHAIN_NLP`), then fall back to `parseLocalTask`. `local` stays last. Do not hardcode a single provider.
 2. **Seam 2 (`src/services/reminder.ts`)**: Adaptive reminder calculation and interval dispatcher. Never block the scheduler; log failures and continue to the next task.
 3. **Seam 3 (`src/services/task.ts`)**: Pure database CRUD operations using Drizzle. Keep SQL queries type-safe and return typed records.
-4. **Seam 4 (`src/services/affirmation.ts`)**: Congratulatory messaging. Never fail if Gemini is unavailable; fall back to `src/data/affirmations.json`.
+4. **Seam 4 (`src/services/affirmation.ts`)**: Congratulatory messaging. Never fail if every provider is unavailable; fall back to `src/data/affirmations.json`.
 5. **Seam 5 (`src/bot/handlers/router.ts`)**: WhatsApp message and reaction routing. Protect against unauthorized users via `user_settings.is_allowed`.
 
 ---

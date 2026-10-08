@@ -8,6 +8,7 @@ export const config = {
   authDir: process.env.AUTH_DIR || './auth_info',
   logLevel: process.env.LOG_LEVEL || 'info',
   antigravityBridgeUrl: process.env.ANTIGRAVITY_BRIDGE_URL || '',
+  antigravityBridgeToken: process.env.ANTIGRAVITY_BRIDGE_TOKEN || '',
   storageDriver: (process.env.STORAGE_DRIVER || 'local') as 'local' | 's3',
   s3Endpoint: process.env.S3_ENDPOINT || 'http://rust-s3:9000',
   s3Bucket: process.env.S3_BUCKET || 'todo-attachments',

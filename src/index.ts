@@ -5,9 +5,17 @@ import { eq } from 'drizzle-orm';
 import { config } from './config/index.js';
 import { startDashboardServer } from './dashboard/server.js';
 import { flushTelemetry, telemetry } from './services/telemetry.js';
+import { formatLlmStartupLog, getLlmConfig } from './config/llm.js';
 
 async function bootstrap() {
   console.log('🚀 Memulai WhatsApp To-Do Reminder Bot...');
+
+  try {
+    console.log(formatLlmStartupLog(getLlmConfig()));
+  } catch (err) {
+    console.error('❌ Konfigurasi LLM tidak valid:', err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
 
   // 1. Check DB connectivity & auto-initialize tables
   try {

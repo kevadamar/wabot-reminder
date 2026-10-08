@@ -25,10 +25,10 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
   - Tambah sub-tugas cukup dengan membalas `subtask: <nama & waktu>`.
 - 📜 **Audit Trail & Riwayat Perubahan (`task_history`)**:
   - Seluruh mutasi (pembuatan, perubahan jadwal, ganti judul, lampiran, penyelesaian) dicatat di PostgreSQL dan dapat dicek via `riwayat <ID>`.
-- 🧠 **NLP Bahasa Indonesia (3-Tier Resilient Architecture)**:
-  1. **Tier 1 (Cloud)**: Google Gemini Flash dengan kesadaran konteks waktu dinamis.
-  2. **Tier 2 (Host CLI Fallback)**: **Antigravity CLI** (`agy`) bridge port 7860 jika API Gemini limit atau bermasalah.
-  3. **Tier 3 (Local Offline Fallback)**: Mesin regex komprehensif Bahasa Indonesia + `chrono-node` dengan kesadaran timezone (WIB/WITA/WIT). Bot **tidak pernah drop pesan atau crash** meski tanpa internet ke Google AI!
+- 🧠 **NLP Bahasa Indonesia (rantai provider yang bisa diatur)**:
+  1. Urutan provider dibaca dari env (`LLM_CHAIN_NLP`). Default-nya tetap Gemini, lalu Antigravity bridge jika URL-nya diisi, lalu parser lokal.
+  2. Provider lain yang bicara Chat Completions (OpenAI, OpenRouter, Groq, Ollama) masuk lewat `OPENAI_BASE_URL`. Anthropic opsional.
+  3. **Fallback lokal**: regex Bahasa Indonesia + `chrono-node` dengan timezone (WIB/WITA/WIT). Bot tetap memproses pesan kalau semua provider gagal.
 - ⏰ **Pengingat Ramah, Adaptif & Fleksibel**:
   - Secara default mengingatkan sesuai konfigurasi pengguna (default 10–30 menit sebelum deadline).
   - Mendukung penentuan waktu pengingat khusus per tugas langsung dari bahasa alami (contoh: *"ingatkan 30 menit sebelumnya"*, *"ingatkan 1 jam sebelum"*, *"ingatkan H-1"*).
@@ -46,7 +46,7 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
 - **Runtime**: [Bun](https://bun.sh/)
 - **WhatsApp Client**: `@whiskeysockets/baileys` (v7 Native WebSockets)
 - **Database**: PostgreSQL (v16) via [Drizzle ORM](https://orm.drizzle.team/) & `postgres.js`
-- **AI / NLP**: `@google/genai` (Gemini 1.5 Flash) + Antigravity CLI (`agy`) + `chrono-node`
+- **AI / NLP**: rantai provider (Gemini, OpenAI-compatible, Anthropic, Antigravity CLI) + `chrono-node`
 
 ---
 
@@ -302,11 +302,18 @@ Jika Anda sudah menginstal **Antigravity CLI** (`agy`) di VPS/Host server (di lu
    ```bash
    pm2 start scripts/antigravity-bridge.ts --name agy-bridge --interpreter bun
    ```
-   Bridge ini akan mendengarkan request HTTP di `http://0.0.0.0:7860`.
+   Bridge mendengarkan `127.0.0.1:7860` secara default. Kalau container harus menjangkaunya, jalankan dengan `HOST` yang mengarah ke gateway Docker (bukan `0.0.0.0` yang terbuka ke internet) dan tutup port itu di firewall.
 
-2. **Hubungkan Container Dokploy ke Host**:
+2. **Pasang token yang sama di host dan di container**:
+   ```bash
+   openssl rand -hex 32
+   ```
+   Set `ANTIGRAVITY_BRIDGE_TOKEN` pada proses bridge dan pada env bot.
+
+3. **Hubungkan Container Dokploy ke Host**:
    Di tab **Environment** Dokploy, tambahkan:
    ```env
    ANTIGRAVITY_BRIDGE_URL=http://host.docker.internal:7860
+   ANTIGRAVITY_BRIDGE_TOKEN=token-yang-sama
    ```
-   *(Container akan otomatis memanggil bridge ini jika Gemini API tidak tersedia atau error)*.
+   Container memanggil bridge ini ketika provider sebelumnya di rantai gagal.

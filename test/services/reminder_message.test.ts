@@ -90,9 +90,10 @@ describe('Seam 2: Dynamic & Human Reminder Messaging', () => {
     );
 
     expect(msg).toContain('Halo Keva!');
-    expect(capturedPayload.contents).toContain('Halo Keva!');
-    expect(capturedPayload.contents).toContain('PENGINGAT KHUSUS/MANUAL YANG DITRIGGER ADMIN DARI DASHBOARD');
-    expect(capturedPayload.contents.toLowerCase()).toContain('mager');
+    const instruction = `${capturedPayload.config.systemInstruction}\n${capturedPayload.contents}`;
+    expect(instruction).toContain('Halo Keva!');
+    expect(instruction).toContain('PENGINGAT KHUSUS/MANUAL YANG DITRIGGER ADMIN DARI DASHBOARD');
+    expect(instruction.toLowerCase()).toContain('mager');
   });
 
   it('should fallback to playful anti-mager templates with user name on manual trigger', async () => {

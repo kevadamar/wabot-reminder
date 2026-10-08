@@ -1,7 +1,10 @@
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { and, asc, eq, gte, lt, or, sql } from 'drizzle-orm';
 import { config } from '../config/index.js';
+import { getLlmConfig } from '../config/llm.js';
 import { recordAiUsage, telemetry } from './telemetry.js';
+import { createGeminiProvider } from './llm/providers/gemini.js';
+import { providersForOperation } from './llm/registry.js';
+import type { LlmProvider } from './llm/types.js';
 import {
   dailyDigestDeliveries,
   dailyMotivations,
@@ -28,7 +31,7 @@ export interface MorningDigestTask {
 
 export interface MorningMotivationGeneration {
   text: string;
-  source: 'gemini' | 'local';
+  source: string;
   model?: string | null;
   usage?: {
     promptTokens?: number | null;
@@ -489,58 +492,66 @@ export async function generateMorningMotivation(options: {
   model?: string;
   timeoutMs?: number;
 } = {}): Promise<MorningMotivationGeneration> {
-  const client = options.client ?? (config.geminiApiKey ? new GoogleGenAI({ apiKey: config.geminiApiKey }) : null);
-  if (!client) throw new Error('MORNING_MOTIVATION_AI_UNAVAILABLE');
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 1800);
-  const startedAt = performance.now();
-  try {
-    const model = options.model ?? config.geminiModel;
-    const response: any = await client.models.generateContent({
-      model,
-      contents:
-        'Buat satu pantun penyemangat pagi Bahasa Indonesia, 4 baris, hangat dan natural. Maksimal 220 karakter. Hindari kutipan, markdown, URL, nasihat panjang, dan klaim tentang agenda pengguna. Balas hanya isi pantun.',
-      config: {
-        abortSignal: controller.signal,
-        candidateCount: 1,
-        maxOutputTokens: 128,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-      },
-    });
-    const text = response.text?.trim() || '';
-    if (!validateMorningMotivation(text)) throw new Error('INVALID_MORNING_MOTIVATION');
-    const usage = response.usageMetadata ?? {};
-    const result: MorningMotivationGeneration = {
-      text,
-      source: 'gemini',
-      model: response.modelVersion || model,
-      usage: {
-        promptTokens: usage.promptTokenCount ?? null,
-        outputTokens: usage.candidatesTokenCount ?? null,
-        thoughtTokens: usage.thoughtsTokenCount ?? null,
-        totalTokens: usage.totalTokenCount ?? null,
-      },
-    };
-    recordAiUsage(telemetry, {
-      operation: 'morning_motivation',
-      provider: 'gemini',
-      outcome: 'success',
-      durationMs: performance.now() - startedAt,
-      usage: result.usage,
-    });
-    return result;
-  } catch (error) {
-    recordAiUsage(telemetry, {
-      operation: 'morning_motivation',
-      provider: 'gemini',
-      outcome: controller.signal.aborted ? 'timeout' : 'failed',
-      durationMs: performance.now() - startedAt,
-    });
-    throw error;
-  } finally {
-    clearTimeout(timer);
+  const cfg = getLlmConfig();
+  const timeoutMs = options.timeoutMs ?? Math.min(cfg.gemini.timeoutMs, 1800);
+  let providers: LlmProvider[];
+  if (options.client !== undefined) {
+    if (!options.client) throw new Error('MORNING_MOTIVATION_AI_UNAVAILABLE');
+    providers = [
+      createGeminiProvider({
+        client: options.client,
+        model: options.model ?? cfg.gemini.model,
+        thinkingLevel: 'MINIMAL',
+        timeoutMs,
+      }),
+    ];
+  } else {
+    providers = providersForOperation('morning_motivation').map((provider) =>
+      provider.id === 'gemini' ? { ...provider, timeoutMs } : provider
+    );
   }
+  if (providers.length === 0) throw new Error('MORNING_MOTIVATION_AI_UNAVAILABLE');
+
+  let lastError: unknown;
+  for (const provider of providers) {
+    const signal = AbortSignal.timeout(Math.min(provider.timeoutMs, timeoutMs));
+    const startedAt = performance.now();
+    try {
+      const result = await provider.generate({
+        operation: 'morning_motivation',
+        system:
+          'Kamu menulis pantun penyemangat pagi Bahasa Indonesia. Balas hanya isi pantun, 2 sampai 4 baris, hangat dan natural, maksimal 220 karakter. Hindari kutipan, markdown, URL, nasihat panjang, dan klaim tentang agenda pengguna.',
+        userContent: 'Buat satu pantun untuk pagi ini.',
+        maxOutputTokens: 128,
+        candidateCount: 1,
+        thinkingLevel: 'MINIMAL',
+        signal,
+      });
+      if (!validateMorningMotivation(result.text)) throw new Error('INVALID_MORNING_MOTIVATION');
+      recordAiUsage(telemetry, {
+        operation: 'morning_motivation',
+        provider: provider.id,
+        outcome: 'success',
+        durationMs: performance.now() - startedAt,
+        usage: result.usage,
+      });
+      return {
+        text: result.text,
+        source: provider.id,
+        model: result.model ?? provider.model,
+        usage: result.usage,
+      };
+    } catch (error) {
+      lastError = error;
+      recordAiUsage(telemetry, {
+        operation: 'morning_motivation',
+        provider: provider.id,
+        outcome: signal.aborted ? 'timeout' : 'failed',
+        durationMs: performance.now() - startedAt,
+      });
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('MORNING_MOTIVATION_AI_UNAVAILABLE');
 }
 
 export async function completeMorningDigestDelivery(

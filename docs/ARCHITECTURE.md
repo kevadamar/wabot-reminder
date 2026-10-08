@@ -63,7 +63,8 @@ flowchart TD
 | :--- | :--- | :--- |
 | **Client Manager** | `src/bot/client.ts` | Manages Baileys socket lifecycle, QR code generation in terminal, auth credentials persistence in `./auth_info`, and initiates background interval timers. |
 | **Router** | `src/bot/handlers/router.ts` | Dispatches incoming messages, validates whitelist permissions, handles commands (`/help`, `/list`, `/selesai`, `/batal`), maps quoted replies, and processes emoji reactions. |
-| **NLP Service** | `src/services/nlp.ts` | Classifies task intent, strips conversational noise, normalizes Indonesian temporal phrases, extracts deadline timestamps, and delegates to Gemini with local fallback. |
+| **NLP Service** | `src/services/nlp.ts` | Classifies task intent, strips conversational noise, normalizes Indonesian temporal phrases, extracts deadline timestamps, and delegates to the configured LLM chain with a local parser as the last tier. |
+| **LLM chain** | `src/services/llm/` | Provider adapters (Gemini, OpenAI-compatible, Anthropic, Antigravity), per-attempt cancellation, total time budget, output validation, and a circuit breaker per provider. Order comes from `LLM_CHAIN_*`. |
 | **Task Service** | `src/services/task.ts` | Handles database operations (`tasks`, `task_messages`, `user_settings`), status transitions (`pending_deadline`, `pending`, `resolved`, `cancelled`), and message-to-task correlation. |
 | **Reminder Worker** | `src/services/reminder.ts` | Calculates adaptive `remind_at` offsets, queries due and overdue tasks every 60 seconds, dispatches alerts, and updates notification flags. |
 | **Morning Digest** | `src/services/morning-digest.ts` | Dispatches opt-in daily morning task summaries at configured local time with cached AI/local pantun motivation. |

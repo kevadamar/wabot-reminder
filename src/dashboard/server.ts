@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { and, asc, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, lte, notInArray, or, sql } from 'drizzle-orm';
 import {
   taskAttachments,
   taskHistory,
@@ -10,6 +10,8 @@ import {
   userSettings,
 } from '../db/schema.js';
 import { runtimeHealth } from '../services/telemetry.js';
+import { getLlmConfig } from '../config/llm.js';
+import { getSharedBreaker } from '../services/llm/breaker.js';
 import { rescheduleTask } from '../services/task.js';
 import { triggerTaskReminder } from '../bot/client.js';
 import { config } from '../config/index.js';
@@ -107,7 +109,15 @@ export async function buildDashboardSnapshot(db: any) {
         durationMs: telemetryEvents.durationMs,
       })
       .from(telemetryEvents)
-      .where(eq(telemetryEvents.outcome, 'failed'))
+      .where(
+        notInArray(telemetryEvents.outcome, [
+          'success',
+          'selected',
+          'skipped_breaker_open',
+          'skipped_unconfigured',
+          'skipped_budget',
+        ])
+      )
       .orderBy(desc(telemetryEvents.occurredAt))
       .limit(20),
   ]);
@@ -145,6 +155,10 @@ export async function buildDashboardSnapshot(db: any) {
       maxValue: Number(row.maxValue),
     })),
     recentErrors: errorRows,
+    llm: {
+      chains: getLlmConfig().chains,
+      breakers: getSharedBreaker(getLlmConfig().breaker).snapshot(),
+    },
   };
 }
 

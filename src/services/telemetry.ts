@@ -12,6 +12,7 @@ const ALLOWED_DIMENSION_KEYS = new Set([
   'operation',
   'outcome',
   'provider',
+  'final_provider',
   'source',
   'status',
   'type',
