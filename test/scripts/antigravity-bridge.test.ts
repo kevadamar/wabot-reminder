@@ -178,6 +178,64 @@ describe('Antigravity bridge', () => {
     });
   });
 
+  describe('agent JSON output', () => {
+    const auth = { Authorization: 'Bearer bridge-token' };
+    const agyJson = (body: Record<string, unknown>) => ({
+      stdout: new Response(JSON.stringify(body)).body,
+      stderr: new Response('').body,
+      exited: Promise.resolve(0),
+    });
+
+    it('asks for JSON output and tells the agent not to use tools', async () => {
+      let command: string[] = [];
+      await handleBridgeRequest(post('{"prompt":"besok revamp esb.id"}', auth), deps({
+        spawn: (cmd) => {
+          command = cmd;
+          return agyJson({ status: 'SUCCESS', response: 'ok' });
+        },
+      }));
+      expect(command[command.indexOf('--output-format') + 1]).toBe('json');
+      const prompt = command[command.indexOf('-p') + 1]!;
+      expect(prompt).toContain('besok revamp esb.id');
+      expect(prompt).toMatch(/jangan menjalankan perintah/i);
+      expect(command).not.toContain('--dangerously-skip-permissions');
+    });
+
+    it('returns the response text and token usage', async () => {
+      const response = await handleBridgeRequest(post('{"prompt":"halo"}', auth), deps({
+        spawn: () => agyJson({
+          status: 'SUCCESS',
+          response: '{"isTask": true}\n',
+          usage: { input_tokens: 16392, output_tokens: 18, thinking_tokens: 2, total_tokens: 16412 },
+        }),
+      }));
+      expect(await response.json()).toEqual({
+        text: '{"isTask": true}',
+        usage: { promptTokens: 16392, outputTokens: 18, thoughtTokens: 2, totalTokens: 16412 },
+      });
+    });
+
+    it('reports a denied tool instead of an empty answer', async () => {
+      const lines: string[] = [];
+      const response = await handleBridgeRequest(post('{"prompt":"halo"}', { ...auth, 'X-Request-Id': 'abcd1234-1' }), deps({
+        log: (line) => lines.push(line),
+        spawn: () => ({
+          stdout: new Response(JSON.stringify({
+            status: 'SUCCESS',
+            response: '',
+            denied_actions: [{ action: 'command', display_name: 'RunCommand' }],
+          })).body,
+          stderr: new Response('no output produced — a tool required the "command" permission').body,
+          exited: Promise.resolve(0),
+        }),
+      }));
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: 'tool_denied:command' });
+      expect(lines[0]).toContain('502 tool_denied:command');
+      expect(lines[0]).toContain('tool ditolak: command');
+    });
+  });
+
   describe('images', () => {
     const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     const auth = { Authorization: 'Bearer bridge-token' };

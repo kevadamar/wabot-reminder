@@ -395,6 +395,8 @@ Jika Anda sudah menginstal **Antigravity CLI** (`agy`) di VPS/Host server (di lu
    ANTIGRAVITY_BRIDGE_URL=http://172.18.0.1:7860
    ```
 
+   `agy` adalah agent yang bisa memakai tool. Dalam mode headless (`-p`), permintaan izin tool otomatis ditolak dan jawabannya jadi kosong, misalnya saat pesan berisi domain lalu agent mencoba membukanya. Karena itu bridge selalu menambahkan instruksi "jawab langsung tanpa tool" dan membaca `--output-format json`. Kalau agent tetap mencoba, dashboard menampilkan `tool_denied:<aksi>`. **Jangan** menjalankan bridge dengan `--dangerously-skip-permissions`: isi pesan WhatsApp bisa menyuruh agent menjalankan perintah di server.
+
    Kalau call antigravity berakhir `empty_output` (atau `invalid_output · Bridge membalas teks kosong`), `agy` jalan tapi tidak mencetak jawaban. Biasanya karena proses pm2 tidak memakai `HOME`/sesi login yang sama dengan shell Anda. Cari ID call-nya di `pm2 logs agy-bridge`: baris `[Bridge] <id> … stderr: …` menunjukkan pesan asli dari CLI. Pastikan pm2 dijalankan oleh user yang sudah `agy` login, lalu `pm2 restart agy-bridge --update-env`.
 
 4. **(Opsional) Screening gambar lewat Antigravity**:
