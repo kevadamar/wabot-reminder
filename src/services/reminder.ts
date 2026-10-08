@@ -41,92 +41,128 @@ export function calculateRemindAt(deadline: Date, options: RemindAtOptions = {})
 
 export type DispatchMessageCallback = (task: Task, isOverdue: boolean) => Promise<string | null>;
 
+export interface DispatchOptions {
+  /**
+   * Upper bound of reminders sent to one user in a single cycle. The dispatch
+   * callback paces same-user sends (20–30s apart), so this keeps a cycle well
+   * under the 60s tick; the remaining reminders stay due for the next cycle.
+   */
+  maxPerUserPerCycle?: number;
+  /** Number of users processed in parallel, so one paced user never delays others. */
+  userConcurrency?: number;
+}
+
+interface DueReminder {
+  task: Task;
+  isOverdue: boolean;
+  dueAt: number;
+}
+
+const OVERDUE_GRACE_MINUTES = 15;
+
 /**
  * Queries due and overdue tasks, triggers notifications, and marks them reminded.
+ * Reminders are grouped per user: users run in parallel, a user's reminders run
+ * sequentially (earliest due first) so the dispatcher can pace them.
  */
 export async function checkAndDispatchReminders(
   db: any,
   dispatchMessage: DispatchMessageCallback,
-  now: Date = new Date()
+  now: Date = new Date(),
+  options: DispatchOptions = {}
 ): Promise<number> {
-  let count = 0;
+  const maxPerUser = Math.max(1, options.maxPerUserPerCycle ?? 2);
+  const userConcurrency = Math.max(1, options.userConcurrency ?? 4);
 
-  // 1. Regular reminders: pending, reminded = 0, remindAt <= now
-  const dueTasks = await db
+  // Regular reminders: pending, reminded = 0, remindAt <= now
+  const dueTasks: Task[] = await db
     .select()
     .from(tasks)
     .where(and(eq(tasks.status, 'pending'), eq(tasks.reminded, 0), lte(tasks.remindAt, now)));
 
-  for (const task of dueTasks) {
-    try {
-      const messageId = await dispatchMessage(task, false);
-      await db
-        .update(tasks)
-        .set({
-          reminded: 1,
-          updatedAt: new Date(),
-        })
-        .where(eq(tasks.id, task.id));
-
-      if (messageId) {
-        await linkTaskMessage(db, task.id, messageId);
-      }
-      count++;
-      telemetry.increment('reminder_dispatch_total', { type: 'regular', outcome: 'success' });
-    } catch {
-      telemetry.increment('reminder_dispatch_total', { type: 'regular', outcome: 'failed' });
-      telemetry.recordEvent({
-        component: 'scheduler',
-        operation: 'reminder_dispatch',
-        outcome: 'failed',
-        provider: null,
-        errorCode: 'REGULAR_DISPATCH_FAILED',
-        durationMs: null,
-      });
-      // Continue next task on individual failure
-    }
-  }
-
-  // 2. Overdue alerts (Final Reminder): pending, reminded = 1, deadline <= now - 15 minutes
-  const overdueGraceMinutes = 15;
-  const overdueThreshold = new Date(now.getTime() - overdueGraceMinutes * 60 * 1000);
-
-  const overdueTasks = await db
+  // Overdue alerts (final reminder): pending, reminded = 1, deadline <= now - 15 minutes
+  const overdueThreshold = new Date(now.getTime() - OVERDUE_GRACE_MINUTES * 60 * 1000);
+  const overdueTasks: Task[] = await db
     .select()
     .from(tasks)
     .where(and(eq(tasks.status, 'pending'), eq(tasks.reminded, 1), lte(tasks.deadline, overdueThreshold)));
 
+  const byUser = new Map<string, DueReminder[]>();
+  const enqueue = (reminder: DueReminder) => {
+    const list = byUser.get(reminder.task.userJid) ?? [];
+    list.push(reminder);
+    byUser.set(reminder.task.userJid, list);
+  };
+  for (const task of dueTasks) {
+    enqueue({ task, isOverdue: false, dueAt: task.remindAt ? new Date(task.remindAt).getTime() : 0 });
+  }
   for (const task of overdueTasks) {
-    try {
-      const messageId = await dispatchMessage(task, true);
-      await db
-        .update(tasks)
-        .set({
-          reminded: 2, // 2 = overdue alerted
-          updatedAt: new Date(),
-        })
-        .where(eq(tasks.id, task.id));
-
-      if (messageId) {
-        await linkTaskMessage(db, task.id, messageId);
-      }
-      count++;
-      telemetry.increment('reminder_dispatch_total', { type: 'overdue', outcome: 'success' });
-    } catch {
-      telemetry.increment('reminder_dispatch_total', { type: 'overdue', outcome: 'failed' });
-      telemetry.recordEvent({
-        component: 'scheduler',
-        operation: 'reminder_dispatch',
-        outcome: 'failed',
-        provider: null,
-        errorCode: 'OVERDUE_DISPATCH_FAILED',
-        durationMs: null,
-      });
-      // Continue next task
-    }
+    const deadlineMs = task.deadline ? new Date(task.deadline).getTime() : 0;
+    enqueue({ task, isOverdue: true, dueAt: deadlineMs + OVERDUE_GRACE_MINUTES * 60 * 1000 });
   }
 
+  let count = 0;
+  await forEachConcurrent([...byUser.values()], userConcurrency, async (reminders) => {
+    reminders.sort((a, b) => a.dueAt - b.dueAt || a.task.id - b.task.id);
+    for (const deferred of reminders.slice(maxPerUser)) {
+      telemetry.increment('reminder_dispatch_total', {
+        type: deferred.isOverdue ? 'overdue' : 'regular',
+        outcome: 'deferred',
+      });
+    }
+    for (const reminder of reminders.slice(0, maxPerUser)) {
+      if (await dispatchOne(db, dispatchMessage, reminder)) count++;
+    }
+  });
+
   return count;
+}
+
+async function dispatchOne(
+  db: any,
+  dispatchMessage: DispatchMessageCallback,
+  { task, isOverdue }: DueReminder
+): Promise<boolean> {
+  const type = isOverdue ? 'overdue' : 'regular';
+  try {
+    const messageId = await dispatchMessage(task, isOverdue);
+    await db
+      .update(tasks)
+      .set({
+        reminded: isOverdue ? 2 : 1, // 2 = overdue alerted
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, task.id));
+
+    if (messageId) {
+      await linkTaskMessage(db, task.id, messageId);
+    }
+    telemetry.increment('reminder_dispatch_total', { type, outcome: 'success' });
+    return true;
+  } catch {
+    telemetry.increment('reminder_dispatch_total', { type, outcome: 'failed' });
+    telemetry.recordEvent({
+      component: 'scheduler',
+      operation: 'reminder_dispatch',
+      outcome: 'failed',
+      provider: null,
+      errorCode: isOverdue ? 'OVERDUE_DISPATCH_FAILED' : 'REGULAR_DISPATCH_FAILED',
+      durationMs: null,
+    });
+    // Continue with the next reminder on individual failure
+    return false;
+  }
+}
+
+async function forEachConcurrent<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next++]!;
+      await worker(item);
+    }
+  });
+  await Promise.all(runners);
 }
 
 const REGULAR_FALLBACKS = [

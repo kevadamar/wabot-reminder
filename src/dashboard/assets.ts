@@ -547,6 +547,7 @@ let searchDebounceTimer=null;
 const statusMap={
   pending:{label:'Pending',cls:'badge-pending'},
   pending_deadline:{label:'No Deadline',cls:'badge-pending_deadline'},
+  pending_confirmation:{label:'Awaiting Confirm',cls:'badge-pending_deadline'},
   overdue:{label:'Overdue',cls:'badge-overdue'},
   resolved:{label:'Selesai',cls:'badge-resolved'},
   cancelled:{label:'Batal',cls:'badge-cancelled'},

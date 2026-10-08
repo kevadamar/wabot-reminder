@@ -21,6 +21,8 @@ export const config = {
   dashboardPort: parseInt(process.env.DASHBOARD_PORT || '3080', 10),
   dashboardUsername: process.env.DASHBOARD_USERNAME || '',
   dashboardPassword: process.env.DASHBOARD_PASSWORD || '',
+  reminderPacingMinMs: parseInt(process.env.REMINDER_PACING_MIN_MS || '20000', 10),
+  reminderPacingMaxMs: parseInt(process.env.REMINDER_PACING_MAX_MS || '30000', 10),
   telemetryFlushIntervalMs: Math.max(10_000, parseInt(process.env.TELEMETRY_FLUSH_INTERVAL_MS || '60000', 10)),
   adminInstagram: process.env.ADMIN_INSTAGRAM || '@kevadamar',
 };

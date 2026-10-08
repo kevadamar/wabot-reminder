@@ -175,6 +175,26 @@ sequenceDiagram
     end
 ```
 
+#### Per-chat pacing (anti-spam)
+
+Both phases are queried up front and grouped per user. Users are processed in parallel (max 4), while one user's reminders go out sequentially, earliest due first. Every automated send (reminders and the morning digest) goes through `createSendPacer` (`src/services/send-pacer.ts`):
+
+- a jittered **20–30s gap** between two automated messages to the **same chat** (`REMINDER_PACING_MIN_MS` / `REMINDER_PACING_MAX_MS`, min ≥ 6s = WhatsApp pair rate limit, Cloud API error `131056`);
+- a **1s global gap** between any two automated sends, so many users due at the same minute do not form a burst;
+- at most **2 reminders per user per cycle**; the rest stay `reminded = 0` / `1` and go out on the next 60s tick, so pacing never blocks the scheduler.
+
+Replies to user messages are not paced: they answer a message the user just sent.
+
+### 3.4 Same-Schedule Confirmation
+
+When a new task (or a `pending_deadline` task receiving its time) has a deadline in the **same minute** as another `pending` task of the same user, the router stores it as `pending_confirmation` (never reminded) and asks casually whether to keep it:
+
+- `gas` / `ya` / `lanjut` / `gapapa` → `confirmTask` → `pending` (history `confirm`);
+- another time (e.g. `jam 14:30`, kept on the held task's day) → re-checked for collisions, then `pending`;
+- `batal` / `ga jadi` → `cancelled`; the existing task is untouched.
+
+The reply is matched by quoting the prompt, or by the latest `pending_confirmation` task within 15 minutes. Unrelated messages fall through to normal routing, so the prompt never blocks the user.
+
 ---
 
 ## 4. Database Entity-Relationship Diagram (ERD)

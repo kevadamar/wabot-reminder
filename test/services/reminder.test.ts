@@ -130,4 +130,109 @@ describe('Seam 2: Adaptive Reminder Calculator & Dispatcher', () => {
     const checkDb = await db.select().from(tasks);
     expect(checkDb[0]?.reminded).toBe(2);
   });
+
+  it('caps reminders per user per cycle and leaves the rest due for the next cycle', async () => {
+    await ensureUserSettings(db, testUserJid, 'User 1', true);
+    const sameRemindAt = new Date('2026-09-26T09:55:00.000Z');
+    const sameDeadline = new Date('2026-09-26T10:05:00.000Z');
+    const created = [];
+    for (const title of ['Tugas A', 'Tugas B', 'Tugas C']) {
+      created.push(
+        await createTask(db, {
+          userJid: testUserJid,
+          task: title,
+          deadline: sameDeadline,
+          remindAt: sameRemindAt,
+          status: 'pending',
+        })
+      );
+    }
+
+    const sent: number[] = [];
+    const dispatcher = async (task: any) => {
+      sent.push(task.id);
+      return null;
+    };
+
+    const firstCycle = await checkAndDispatchReminders(db, dispatcher, baseNow, { maxPerUserPerCycle: 2 });
+    expect(firstCycle).toBe(2);
+    expect(sent).toEqual([created[0]!.id, created[1]!.id]);
+
+    const stillDue = (await db.select().from(tasks)).filter((t) => t.reminded === 0);
+    expect(stillDue.map((t) => t.id)).toEqual([created[2]!.id]);
+
+    const secondCycle = await checkAndDispatchReminders(db, dispatcher, baseNow, { maxPerUserPerCycle: 2 });
+    expect(secondCycle).toBe(1);
+    expect(sent).toEqual([created[0]!.id, created[1]!.id, created[2]!.id]);
+  });
+
+  it('dispatches the earliest-due reminder of a user first', async () => {
+    await ensureUserSettings(db, testUserJid, 'User 1', true);
+    const later = await createTask(db, {
+      userJid: testUserJid,
+      task: 'Later',
+      deadline: new Date('2026-09-26T10:30:00.000Z'),
+      remindAt: new Date('2026-09-26T09:59:00.000Z'),
+      status: 'pending',
+    });
+    const earlier = await createTask(db, {
+      userJid: testUserJid,
+      task: 'Earlier',
+      deadline: new Date('2026-09-26T10:30:00.000Z'),
+      remindAt: new Date('2026-09-26T09:50:00.000Z'),
+      status: 'pending',
+    });
+
+    const sent: number[] = [];
+    await checkAndDispatchReminders(db, async (task: any) => {
+      sent.push(task.id);
+      return null;
+    }, baseNow);
+
+    expect(sent).toEqual([earlier.id, later.id]);
+  });
+
+  it('does not make other users wait while one user is being paced', async () => {
+    const otherUserJid = '628111222333@s.whatsapp.net';
+    await ensureUserSettings(db, testUserJid, 'User 1', true);
+    await ensureUserSettings(db, otherUserJid, 'User 2', true);
+    const remindAt = new Date('2026-09-26T09:55:00.000Z');
+    const deadline = new Date('2026-09-26T10:05:00.000Z');
+    await createTask(db, { userJid: testUserJid, task: 'Slow user', deadline, remindAt, status: 'pending' });
+    const otherTask = await createTask(db, { userJid: otherUserJid, task: 'Other user', deadline, remindAt, status: 'pending' });
+
+    let releaseSlowUser: () => void = () => {};
+    const slowUserGate = new Promise<void>((resolve) => {
+      releaseSlowUser = resolve;
+    });
+    const sent: number[] = [];
+
+    const cycle = checkAndDispatchReminders(db, async (task: any) => {
+      if (task.userJid === testUserJid) await slowUserGate;
+      sent.push(task.id);
+      return null;
+    }, baseNow);
+
+    for (let i = 0; i < 50 && !sent.includes(otherTask.id); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(sent).toContain(otherTask.id);
+
+    releaseSlowUser();
+    expect(await cycle).toBe(2);
+  });
+
+  it('never dispatches tasks awaiting same-schedule confirmation', async () => {
+    await ensureUserSettings(db, testUserJid, 'User 1', true);
+    await createTask(db, {
+      userJid: testUserJid,
+      task: 'Belum dikonfirmasi',
+      deadline: new Date('2026-09-26T10:05:00.000Z'),
+      remindAt: new Date('2026-09-26T09:55:00.000Z'),
+      status: 'pending_confirmation',
+    });
+
+    const count = await checkAndDispatchReminders(db, async () => 'MSG', baseNow);
+    expect(count).toBe(0);
+  });
 });

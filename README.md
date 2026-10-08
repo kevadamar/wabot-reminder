@@ -153,6 +153,10 @@ Lead time pengingat awal default-nya adalah **10 menit** sebelum deadline (dapat
 
 Jika sisa waktu ke deadline kurang dari atau sama dengan lead time pengingat, pengingat akan dikirim tepat pada waktu deadline. Jika lead time diatur ke 30 menit atau lebih dan jarak tugas 30–120 menit tanpa spesifikasi eksplisit, bot adaptif mengirimkan pengingat 15 menit sebelum deadline.
 
+Nama tugas, sub-tugas, dan judul baru (`ubah tugas:`) minimal berisi **3 huruf** (angka, emoji, dan tanda baca tidak dihitung). Jika kurang, bot tidak menyimpannya dan meminta pengguna mengirim ulang dengan nama yang lebih jelas.
+
+Jika tugas baru punya jadwal yang **sama persis (sampai menit)** dengan tugas aktif lain, bot tidak langsung menyimpannya, tapi menanyakan dulu dengan santai karena dua pengingat bakal datang barengan. Balas *gas* / *ya* untuk tetap mencatat, kirim jam lain (cth: *jam 14:30*) untuk menggeser, atau *batal* jika tidak jadi. Pengingat yang jatuh di menit yang sama dikirim berurutan dengan jeda acak 20–30 detik per chat (atur via `REMINDER_PACING_MIN_MS` / `REMINDER_PACING_MAX_MS`) agar tidak terdeteksi sebagai spam oleh WhatsApp.
+
 Kualitas gambar lampiran default-nya adalah **tinggi (high / 4K max)** dengan sanitasi CDR (menghapus GPS/EXIF dan proteksi pixel flood). Pengguna dapat mengubahnya menjadi hemat (2K max) kapan saja via `/setting media hemat`.
 
 ### 🔄 2. Format Balas Pesan (Quoted Reply)

@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { and, asc, desc, eq, gte, ilike, lte, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import {
   taskAttachments,
   taskHistory,
@@ -27,6 +27,8 @@ import {
   SETTINGS_JS,
 } from './assets.js';
 import { getAdminInstagram, setAdminInstagram } from '../services/settings.js';
+
+const ACTIVE_TASK_STATUSES = ['pending', 'pending_deadline', 'pending_confirmation'];
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -600,7 +602,7 @@ export async function listDashboardTasks(
   }
   if (query.status && query.status !== 'all') {
     if (query.status === 'active') {
-      conditions.push(or(eq(tasks.status, 'pending'), eq(tasks.status, 'pending_deadline')));
+      conditions.push(inArray(tasks.status, ACTIVE_TASK_STATUSES));
     } else if (query.status === 'overdue') {
       conditions.push(eq(tasks.status, 'pending'));
       conditions.push(lte(tasks.deadline, new Date()));
@@ -616,7 +618,7 @@ export async function listDashboardTasks(
 
   const rows = await finalQuery
     .orderBy(
-      sql`CASE WHEN ${tasks.status} IN ('pending', 'pending_deadline') THEN 0 ELSE 1 END`,
+      sql`CASE WHEN ${tasks.status} IN ('pending', 'pending_deadline', 'pending_confirmation') THEN 0 ELSE 1 END`,
       asc(tasks.deadline),
       desc(tasks.createdAt)
     )
@@ -652,7 +654,7 @@ export async function countDashboardTasks(
   }
   if (query.status && query.status !== 'all') {
     if (query.status === 'active') {
-      conditions.push(or(eq(tasks.status, 'pending'), eq(tasks.status, 'pending_deadline')));
+      conditions.push(inArray(tasks.status, ACTIVE_TASK_STATUSES));
     } else if (query.status === 'overdue') {
       conditions.push(eq(tasks.status, 'pending'));
       conditions.push(lte(tasks.deadline, new Date()));

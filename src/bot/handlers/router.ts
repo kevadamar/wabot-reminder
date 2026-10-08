@@ -19,8 +19,20 @@ import {
   updateImageQualityMode,
   updateUserName,
   updateLeadReminderMinutes,
+  findSameScheduleTasks,
+  confirmTask,
+  getLatestPendingConfirmationTask,
+  hasEnoughTitleLetters,
+  MIN_TASK_TITLE_LETTERS,
 } from '../../services/task.js';
-import { parseTaskMessage, parseLocalTask, detectSentiment, isTimeOnlyExpression } from '../../services/nlp.js';
+import {
+  parseTaskMessage,
+  parseLocalTask,
+  detectSentiment,
+  isTimeOnlyExpression,
+  getTimezoneOffsetMinutes,
+} from '../../services/nlp.js';
+import type { Task } from '../../db/schema.js';
 import { calculateRemindAt } from '../../services/reminder.js';
 import { generateAffirmation } from '../../services/affirmation.js';
 import {
@@ -93,6 +105,183 @@ export function formatDateTime(date: Date, timezone = 'Asia/Jakarta'): string {
   } catch {
     return date.toISOString();
   }
+}
+
+type ShortTitleContext = 'task' | 'subtask' | 'rename';
+
+function buildShortTitleText(title: string, context: ShortTitleContext, currentTitle?: string): string {
+  const shown = title.replace(/\s+/g, ' ').trim().slice(0, 40);
+  const quoted = shown ? `*"${shown}"*` : '*kosong*';
+  const hint =
+    context === 'rename'
+      ? `Judul *"${currentTitle ?? ''}"* masih aku simpan kok. Coba balas lagi pesan tugasnya, misal: _ubah tugas: Presentasi Pitch Deck_`
+      : context === 'subtask'
+      ? 'Coba kirim ulang sub-tugasnya, misal: _subtask: Siapkan materi slide besok jam 9 pagi_'
+      : 'Coba kirim ulang lengkap dengan waktunya ya, misal: _"Bayar listrik besok jam 2 siang"_';
+
+  return (
+    `Eits, nama ${context === 'subtask' ? 'sub-tugas' : 'tugas'}nya cuma ${quoted} nih 🤏😄\n\n` +
+    `Kependekan buat aku catat, takutnya pas pengingatnya muncul nanti kamu malah garuk-garuk kepala: "ini tugas apa ya?" 😅\n\n` +
+    `Biar jelas, pakai minimal ${MIN_TASK_TITLE_LETTERS} huruf ya. ${hint} ✨`
+  );
+}
+
+const CONFIRMATION_WINDOW_MINUTES = 15;
+
+const CONFIRM_WORDS = new Set([
+  'ya', 'iya', 'iyaa', 'y', 'yes', 'yup', 'yoi', 'gas', 'gass', 'gaskeun', 'lanjut', 'lanjutkan', 'tetap',
+  'tetep', 'catat', 'simpan', 'ok', 'oke', 'okee', 'okay', 'sip', 'sipp', 'siap', 'boleh', 'aman', 'santai',
+  'gapapa', 'gpp', '✅', '👍',
+]);
+const REJECT_WORDS = new Set([
+  'batal', 'batalin', 'gajadi', 'ga', 'gak', 'nggak', 'ngga', 'enggak', 'tidak', 'jangan', 'no', 'nope',
+  'cancel', 'hapus', 'skip', '❌', '🚫',
+]);
+const FILLER_WORDS = new Set(['aja', 'saja', 'deh', 'dong', 'kok', 'sih', 'kak', 'bro', 'brad', 'min']);
+
+/**
+ * Classifies a reply to a same-schedule confirmation prompt as confirm / reject, or null when unrelated.
+ */
+export function classifyConfirmationReply(text: string): 'confirm' | 'reject' | null {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[\uFE0F\u{1F3FB}-\u{1F3FF}]/gu, '')
+    .replace(/\b(?:ga|gak|nggak|ngga|enggak|tidak)\s+(?:apa[\s-]*apa|papa)\b/g, 'gapapa')
+    .replace(/\b(?:ga|gak|nggak|ngga|enggak|tidak)\s+jadi\b/g, 'gajadi')
+    .replace(/[!.,?~]+/g, ' ');
+  const words = normalized.split(/\s+/).filter((w) => w && !FILLER_WORDS.has(w));
+  if (words.length === 0 || words.length > 4) return null;
+  if (words.every((w) => CONFIRM_WORDS.has(w))) return 'confirm';
+  if (words.every((w) => REJECT_WORDS.has(w))) return 'reject';
+  return null;
+}
+
+function startOfLocalDay(date: Date, timezone: string): Date {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const offsetMs = getTimezoneOffsetMinutes(timezone, date) * 60 * 1000;
+  return new Date(Math.floor((date.getTime() + offsetMs) / dayMs) * dayMs - offsetMs);
+}
+
+/**
+ * Parses a "move it to another time" reply. A bare time (e.g. "jam 15:30") keeps the
+ * day of the held task instead of jumping to today.
+ */
+function parseReplacementTime(text: string, heldTask: Task, timezone: string, now: Date): Date | null {
+  const cleaned = text
+    .trim()
+    .replace(/^(?:ganti|ubah|pindah(?:in)?|geser|jadi(?:in)?)\s+(?:ke\s+)?/i, '')
+    .replace(/(?:\s+(?:aja|saja|deh|dong|ya+|kak|kok|sih))+[!.\s]*$/i, '')
+    .trim();
+  if (!cleaned) return null;
+
+  const anchor =
+    heldTask.deadline && isTimeOnlyExpression(cleaned).isTimeOnly
+      ? startOfLocalDay(new Date(heldTask.deadline), timezone)
+      : now;
+  let parsed = parseLocalTask(cleaned, anchor, timezone);
+  if (parsed.deadline && parsed.deadline.getTime() <= now.getTime() && anchor !== now) {
+    parsed = parseLocalTask(cleaned, now, timezone);
+  }
+  if (!parsed.deadline || parsed.taskTitle.trim() !== '') return null;
+  return parsed.deadline;
+}
+
+function buildSameScheduleConfirmText(heldTask: Task, sameSchedule: Task[], timezone: string): string {
+  const deadlineStr = heldTask.deadline ? formatDateTime(new Date(heldTask.deadline), timezone) : '';
+  const shown = sameSchedule.slice(0, 3).map((t) => `• [ID: ${t.id}] ${t.task}`).join('\n');
+  const more = sameSchedule.length > 3 ? `\n_...dan ${sameSchedule.length - 3} tugas lainnya_` : '';
+  const existingLabel = sameSchedule.length > 1 ? `${sameSchedule.length} jadwal` : 'jadwal';
+
+  return (
+    `Eh, bentar dulu! 👀 Di *${deadlineStr}* kamu udah punya ${existingLabel} nih:\n${shown}${more}\n\n` +
+    `Kalau *"${heldTask.task}"* aku pasang di jam yang sama, nanti pengingatnya datang barengan dan takutnya malah bikin bingung yang mana duluan 😅\n\n` +
+    `Mau gimana?\n` +
+    `✅ Balas *gas* / *ya*: tetap dicatat, pengingatnya aku kirim berurutan biar nggak numpuk\n` +
+    `⏰ Balas jam lain (cth: *jam 14:30*): aku geser jadwalnya\n` +
+    `❌ Balas *batal*: nggak jadi dicatat`
+  );
+}
+
+async function askSameScheduleConfirmation(
+  sock: any,
+  remoteJid: string,
+  heldTask: Task,
+  sameSchedule: Task[],
+  timezone: string
+): Promise<void> {
+  const reply = await sock.sendMessage(remoteJid, {
+    text: buildSameScheduleConfirmText(heldTask, sameSchedule, timezone),
+  });
+  if (reply?.key?.id) {
+    await linkTaskMessage(db, heldTask.id, reply.key.id);
+  }
+}
+
+/**
+ * Handles a reply to a same-schedule confirmation prompt. Returns false when the
+ * text is unrelated so the regular routing continues.
+ */
+async function handleSameScheduleReply(
+  sock: any,
+  remoteJid: string,
+  user: { timezone: string; leadReminderMinutes: number },
+  heldTask: Task,
+  text: string
+): Promise<boolean> {
+  const decision = classifyConfirmationReply(text);
+
+  if (decision === 'confirm') {
+    const confirmed = await confirmTask(db, heldTask.id, remoteJid, text);
+    if (!confirmed) return false;
+    const deadlineStr = confirmed.deadline ? formatDateTime(new Date(confirmed.deadline), user.timezone) : '-';
+    const reply = await sock.sendMessage(remoteJid, {
+      text: `✅ *Tugas Dicatat!*\n📝: *${confirmed.task}*\n⏰ Deadline: *${deadlineStr}*\n\nSiap, tetap aku pasang di jam yang sama! Pengingatnya nanti aku kirim satu per satu dengan jeda singkat biar nggak numpuk 😉${TASK_FOOTER_NOTE}`,
+    });
+    if (reply?.key?.id) {
+      await linkTaskMessage(db, confirmed.id, reply.key.id);
+    }
+    return true;
+  }
+
+  if (decision === 'reject') {
+    const cancelled = await cancelTask(db, heldTask.id, remoteJid, text);
+    if (!cancelled) return false;
+    const kept = cancelled.deadline ? await findSameScheduleTasks(db, remoteJid, new Date(cancelled.deadline)) : [];
+    const keptNote = kept.length > 0 ? `\nJadwal *${kept.map((t) => t.task).join(', ')}* tetap aman kok.` : '';
+    await sock.sendMessage(remoteJid, {
+      text: `👌 Oke, *"${cancelled.task}"* nggak jadi aku catat.${keptNote}\n\nKalau mau dicatat di waktu lain, kirim aja lagi tugasnya ya! ✨`,
+    });
+    return true;
+  }
+
+  const now = new Date();
+  const newDeadline = parseReplacementTime(text, heldTask, user.timezone, now);
+  if (!newDeadline) return false;
+
+  if (newDeadline.getTime() <= now.getTime()) {
+    await sock.sendMessage(remoteJid, {
+      text: `⚠️ Jam *${formatDateTime(newDeadline, user.timezone)}* udah lewat nih 😅 Coba kirim jam lain yang masih akan datang ya!`,
+    });
+    return true;
+  }
+
+  const remindAt = calculateRemindAt(newDeadline, { leadMinutes: user.leadReminderMinutes, now });
+  const sameSchedule = await findSameScheduleTasks(db, remoteJid, newDeadline, heldTask.id);
+  if (sameSchedule.length > 0) {
+    const held = await updateTaskDeadline(db, heldTask.id, newDeadline, remindAt, text, 'pending_confirmation');
+    if (held) await askSameScheduleConfirmation(sock, remoteJid, held, sameSchedule, user.timezone);
+    return true;
+  }
+
+  const updated = await updateTaskDeadline(db, heldTask.id, newDeadline, remindAt, text);
+  if (!updated) return false;
+  const reply = await sock.sendMessage(remoteJid, {
+    text: `✅ *Waktu Disimpan!*\n📝 Tugas: *${updated.task}*\n⏰ Pengingat: *${formatDateTime(newDeadline, user.timezone)}*\n\nSip, sekarang jadwalnya nggak bentrok lagi. Aku ingatkan pas mendekati waktunya ya! ✨${TASK_FOOTER_NOTE}`,
+  });
+  if (reply?.key?.id) {
+    await linkTaskMessage(db, updated.id, reply.key.id);
+  }
+  return true;
 }
 
 export const TASK_FOOTER_NOTE = `\n\n💡 _Tips: Ingin ubah jadwal, judul, atau tambah sub-tugas? Cukup balas pesan ini:_\n• *ubah waktu: <waktu baru>* (cth: _ubah waktu: besok jam 3 sore_)\n• *ubah tugas: <nama baru>* (cth: _ubah tugas: Presentasi Q3_)\n• *subtask: <sub-tugas & waktu>* (cth: _subtask: Cetak materi jam 9 pagi_)`;
@@ -189,6 +378,8 @@ function formatHistoryAction(item: any, timezone: string): string {
       return `• [${dateStr}] ✅ Tugas diselesaikan`;
     case 'cancel':
       return `• [${dateStr}] ❌ Tugas dibatalkan`;
+    case 'confirm':
+      return `• [${dateStr}] 👌 Dikonfirmasi tetap di jadwal yang sama dengan tugas lain`;
     case 'attachment':
       return `• [${dateStr}] 📎 Lampiran ditambahkan: "${item.newValue || 'file'}"`;
     default:
@@ -855,6 +1046,10 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
     const localParsed = parseLocalTask(rawSubtask, new Date(), user.timezone);
     const subtaskTitle = localParsed.taskTitle || rawSubtask;
+    if (!hasEnoughTitleLetters(subtaskTitle)) {
+      await sock.sendMessage(remoteJid, { text: buildShortTitleText(subtaskTitle, 'subtask') });
+      return;
+    }
     const deadline = localParsed.deadline;
     const remindAt = deadline ? calculateRemindAt(deadline, { leadMinutes: user.leadReminderMinutes }) : null;
 
@@ -912,6 +1107,20 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     }
 
     await sock.sendMessage(remoteJid, { text: `❌ Tugas ID [${taskId}] berhasil dibatalkan beserta sub-tugasnya.` });
+    return;
+  }
+
+  // 9.5. Reply to a same-schedule confirmation prompt (confirm / cancel / pick another time)
+  let heldTask: Task | null = null;
+  if (stanzaId) {
+    const quoted = await findTaskByMessageId(db, stanzaId);
+    if (quoted && quoted.userJid === remoteJid && quoted.status === 'pending_confirmation') {
+      heldTask = quoted;
+    }
+  } else {
+    heldTask = await getLatestPendingConfirmationTask(db, remoteJid, CONFIRMATION_WINDOW_MINUTES);
+  }
+  if (heldTask && (await handleSameScheduleReply(sock, remoteJid, user, heldTask, trimmedText))) {
     return;
   }
 
@@ -999,6 +1208,10 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     // B. Rename Task
     if (renameMatch && renameMatch[1]) {
       const newTitle = renameMatch[1].trim();
+      if (!hasEnoughTitleLetters(newTitle)) {
+        await sock.sendMessage(remoteJid, { text: buildShortTitleText(newTitle, 'rename', targetTask.task) });
+        return;
+      }
       const res = await renameTask(db, {
         taskId: targetTask.id,
         userJid: remoteJid,
@@ -1022,6 +1235,10 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       const rawSubtask = subtaskReplyMatch[1].trim();
       const localParsed = parseLocalTask(rawSubtask, new Date(), user.timezone);
       const subtaskTitle = localParsed.taskTitle || rawSubtask;
+      if (!hasEnoughTitleLetters(subtaskTitle)) {
+        await sock.sendMessage(remoteJid, { text: buildShortTitleText(subtaskTitle, 'subtask') });
+        return;
+      }
       const deadline = localParsed.deadline;
       const remindAt = deadline ? calculateRemindAt(deadline, { leadMinutes: user.leadReminderMinutes }) : null;
 
@@ -1269,6 +1486,22 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
         leadMinutes: user.leadReminderMinutes,
       });
 
+      const sameSchedule = await findSameScheduleTasks(db, remoteJid, localParsed.deadline, pendingTask.id);
+      if (sameSchedule.length > 0) {
+        const held = await updateTaskDeadline(
+          db,
+          pendingTask.id,
+          localParsed.deadline,
+          remindAt,
+          trimmedText,
+          'pending_confirmation'
+        );
+        if (held) {
+          await askSameScheduleConfirmation(sock, remoteJid, held, sameSchedule, user.timezone);
+          return;
+        }
+      }
+
       const updated = await updateTaskDeadline(db, pendingTask.id, localParsed.deadline, remindAt, trimmedText);
       if (updated) {
         const deadlineStr = formatDateTime(localParsed.deadline, user.timezone);
@@ -1345,6 +1578,11 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     return;
   }
 
+  if (!hasEnoughTitleLetters(nlpResult.taskTitle)) {
+    await sock.sendMessage(remoteJid, { text: buildShortTitleText(nlpResult.taskTitle, 'task') });
+    return;
+  }
+
   // Check if deadline is specified but already in the past
   const now = new Date();
   if (nlpResult.deadline && nlpResult.deadline.getTime() <= now.getTime()) {
@@ -1389,13 +1627,19 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     now,
   });
 
+  const sameSchedule = await findSameScheduleTasks(db, remoteJid, nlpResult.deadline);
   const created = await createTask(db, {
     userJid: remoteJid,
     task: nlpResult.taskTitle,
     deadline: nlpResult.deadline,
     remindAt,
-    status: 'pending',
+    status: sameSchedule.length > 0 ? 'pending_confirmation' : 'pending',
   });
+
+  if (sameSchedule.length > 0) {
+    await askSameScheduleConfirmation(sock, remoteJid, created, sameSchedule, user.timezone);
+    return;
+  }
 
   const deadlineStr = formatDateTime(nlpResult.deadline, user.timezone);
   let reminderNote = '';

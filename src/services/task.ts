@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, lt, ne, or } from 'drizzle-orm';
 import {
   tasks,
   taskMessages,
@@ -21,6 +21,16 @@ export interface CreateTaskInput {
   deadline?: Date | null;
   remindAt?: Date | null;
   status?: string;
+}
+
+export const MIN_TASK_TITLE_LETTERS = 3;
+
+/**
+ * True when a task title has at least MIN_TASK_TITLE_LETTERS letters (any script);
+ * digits, emoji and punctuation do not count.
+ */
+export function hasEnoughTitleLetters(title: string): boolean {
+  return (title.match(/\p{L}/gu)?.length ?? 0) >= MIN_TASK_TITLE_LETTERS;
 }
 
 /**
@@ -267,14 +277,16 @@ export async function listActiveTasks(db: any, userJid: string): Promise<Task[]>
 }
 
 /**
- * Updates a pending_deadline task with extracted deadline and remind_at, logging reschedule in taskHistory
+ * Updates a pending_deadline task with extracted deadline and remind_at, logging reschedule in taskHistory.
+ * Use status 'pending_confirmation' to hold the task until the user confirms a shared schedule.
  */
 export async function updateTaskDeadline(
   db: any,
   taskId: number,
   deadline: Date,
   remindAt: Date,
-  rawInput?: string
+  rawInput?: string,
+  status: 'pending' | 'pending_confirmation' = 'pending'
 ): Promise<Task | null> {
   const existing = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   const oldDeadline = existing[0]?.deadline ? new Date(existing[0].deadline) : null;
@@ -284,7 +296,7 @@ export async function updateTaskDeadline(
     .set({
       deadline,
       remindAt,
-      status: 'pending',
+      status,
       updatedAt: new Date(),
     })
     .where(eq(tasks.id, taskId))
@@ -326,6 +338,95 @@ export async function getLatestPendingDeadlineTask(
       )
     )
     .orderBy(desc(tasks.createdAt))
+    .limit(1);
+
+  return matched[0] ?? null;
+}
+
+const MINUTE_MS = 60 * 1000;
+
+/**
+ * Lists a user's active (pending) tasks whose deadline falls in the same clock minute as `deadline`.
+ */
+export async function findSameScheduleTasks(
+  db: any,
+  userJid: string,
+  deadline: Date,
+  excludeTaskId?: number
+): Promise<Task[]> {
+  const minuteStart = new Date(Math.floor(deadline.getTime() / MINUTE_MS) * MINUTE_MS);
+  const minuteEnd = new Date(minuteStart.getTime() + MINUTE_MS);
+  const conditions = [
+    eq(tasks.userJid, userJid),
+    eq(tasks.status, 'pending'),
+    gte(tasks.deadline, minuteStart),
+    lt(tasks.deadline, minuteEnd),
+  ];
+  if (excludeTaskId !== undefined) {
+    conditions.push(ne(tasks.id, excludeTaskId));
+  }
+
+  return db
+    .select()
+    .from(tasks)
+    .where(and(...conditions))
+    .orderBy(asc(tasks.id));
+}
+
+/**
+ * Activates a task held for same-schedule confirmation, logging the confirmation in taskHistory.
+ */
+export async function confirmTask(
+  db: any,
+  taskId: number,
+  userJid: string,
+  rawInput?: string | null
+): Promise<Task | null> {
+  const updated = await db
+    .update(tasks)
+    .set({
+      status: 'pending',
+      updatedAt: new Date(),
+    })
+    .where(and(eq(tasks.id, taskId), eq(tasks.userJid, userJid), eq(tasks.status, 'pending_confirmation')))
+    .returning();
+
+  if (updated[0]) {
+    await db.insert(taskHistory).values({
+      taskId: updated[0].id,
+      userJid,
+      changeType: 'confirm',
+      fieldChanged: 'status',
+      oldValue: 'pending_confirmation',
+      newValue: 'pending',
+      rawInput: rawInput ?? null,
+    });
+  }
+
+  return updated[0] ?? null;
+}
+
+/**
+ * Finds the latest task awaiting same-schedule confirmation for context resolution fallback
+ */
+export async function getLatestPendingConfirmationTask(
+  db: any,
+  userJid: string,
+  withinMinutes = 15
+): Promise<Task | null> {
+  const windowTime = new Date(Date.now() - withinMinutes * 60 * 1000);
+
+  const matched = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.userJid, userJid),
+        eq(tasks.status, 'pending_confirmation'),
+        gt(tasks.updatedAt, windowTime)
+      )
+    )
+    .orderBy(desc(tasks.updatedAt), desc(tasks.id))
     .limit(1);
 
   return matched[0] ?? null;

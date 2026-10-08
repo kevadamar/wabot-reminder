@@ -18,8 +18,14 @@ import { getAttachmentBuffer } from '../services/media.js';
 import { ensureAuthDirectory, saveCredentialsSafely } from './auth.js';
 import { dispatchMorningDigests } from '../services/morning-digest.js';
 import { runtimeHealth, telemetry } from '../services/telemetry.js';
+import { createSendPacer } from '../services/send-pacer.js';
 
 const logger = pino({ level: config.logLevel });
+// Module-level so pacing state survives socket reconnects.
+const schedulerPacer = createSendPacer({
+  minGapMs: config.reminderPacingMinMs,
+  maxGapMs: config.reminderPacingMaxMs,
+});
 let activeSchedulerInterval: ReturnType<typeof setInterval> | null = null;
 let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 let currentSocket: any = null;
@@ -229,38 +235,39 @@ export async function startBot() {
 
           const alertText = await generateReminderMessage(task, isOverdue, deadlineStr, undefined, parentTitle);
 
-          // Direct Media Reminder: Send media image/PDF with alertText as caption if attachment exists
-          let sent: any = null;
-          try {
-            const attachments = await getTaskAttachments(db, task.id);
-            if (attachments.length > 0 && attachments[0]) {
-              const primary = attachments[0];
-              const buffer = await getAttachmentBuffer(primary.storagePath);
+          const sent: any = await schedulerPacer.run(task.userJid, async () => {
+            // Direct Media Reminder: Send media image/PDF with alertText as caption if attachment exists
+            try {
+              const attachments = await getTaskAttachments(db, task.id);
+              if (attachments.length > 0 && attachments[0]) {
+                const primary = attachments[0];
+                const buffer = await getAttachmentBuffer(primary.storagePath);
 
-              if (buffer) {
-                if (primary.fileType === 'image') {
-                  sent = await sock.sendMessage(task.userJid, {
-                    image: buffer,
-                    caption: alertText,
-                  });
-                } else if (primary.fileType === 'document') {
-                  sent = await sock.sendMessage(task.userJid, {
-                    document: buffer,
-                    fileName: primary.fileName,
-                    mimetype: primary.mimeType,
-                    caption: alertText,
-                  });
+                let mediaSent: any = null;
+                if (buffer) {
+                  if (primary.fileType === 'image') {
+                    mediaSent = await sock.sendMessage(task.userJid, {
+                      image: buffer,
+                      caption: alertText,
+                    });
+                  } else if (primary.fileType === 'document') {
+                    mediaSent = await sock.sendMessage(task.userJid, {
+                      document: buffer,
+                      fileName: primary.fileName,
+                      mimetype: primary.mimeType,
+                      caption: alertText,
+                    });
+                  }
                 }
+                if (mediaSent) return mediaSent;
               }
+            } catch (mediaErr: any) {
+              logger.warn({ err: mediaErr, taskId: task.id }, 'Gagal mengirim pengingat dengan lampiran media, beralih ke teks');
             }
-          } catch (mediaErr: any) {
-            logger.warn({ err: mediaErr, taskId: task.id }, 'Gagal mengirim pengingat dengan lampiran media, beralih ke teks');
-          }
 
-          // Fallback to text reminder if no media attachment or media send was skipped
-          if (!sent) {
-            sent = await sock.sendMessage(task.userJid, { text: alertText });
-          }
+            // Fallback to text reminder if no media attachment or media send was skipped
+            return await sock.sendMessage(task.userJid, { text: alertText });
+          });
 
           return sent?.key?.id ?? null;
         });
@@ -271,7 +278,7 @@ export async function startBot() {
       if (runtimeHealth.morningDigestCronEnabled) {
         const digestResult = await dispatchMorningDigests(db, {
           sendMessage: async (userJid, text) => {
-            const sent = await sock.sendMessage(userJid, { text });
+            const sent = await schedulerPacer.run(userJid, () => sock.sendMessage(userJid, { text }));
             return sent?.key?.id ?? null;
           },
         });

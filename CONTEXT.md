@@ -20,6 +20,7 @@ _Avoid_: Alarm time, trigger time
 The lifecycle state of a task in the database.
 - `pending_deadline`: Task recorded but awaiting deadline specification from user.
 - `pending`: Active task with an established deadline awaiting completion.
+- `pending_confirmation`: New task whose deadline falls in the same minute as another active task of the user; held (never reminded) until the user confirms, picks another time, or cancels.
 - `resolved`: Completed task marked by the user via checkmark emoji or command.
 - `cancelled`: Task terminated by user before completion.
 _Avoid_: State, stage
