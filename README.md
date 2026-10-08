@@ -138,6 +138,24 @@ ID yang valid: `gemini`, `openai` (termasuk endpoint OpenAI-compatible seperti O
 
 URL provider ke host publik wajib `https`. `http` otomatis diizinkan untuk host lokal/jaringan privat (misalnya `localhost`, `host.docker.internal`, `10.x`, `172.16–31.x`, `192.168.x`, nama service Docker); host publik lain bisa ditambahkan ke `LLM_INSECURE_HOST_ALLOWLIST`.
 
+#### Visibilitas Call LLM
+
+Setiap percobaan ke provider (API maupun Antigravity bridge) dicatat satu baris di log bot:
+
+```text
+[LLM] 3f9a1c2e-1 vision_screen → antigravity (antigravity-cli) ✗ timeout 25012ms · in 412c +1 img (84 KB) · http 504 · detail: CLI timeout
+[LLM] 3f9a1c2e-2 vision_screen → gemini (gemini-2.5-flash) ✓ success 2380ms · in 412c +1 img (84 KB) · out 196c · tokens 1290/58
+```
+
+ID call (`3f9a1c2e-1`) dikirim ke bridge sebagai header `X-Request-Id`, jadi baris `[Bridge] 3f9a1c2e-1 POST /generate → …` di log host bisa dicocokkan langsung. Request ID dari OpenAI/Anthropic ikut dicatat sebagai `upstream`. Jika dashboard aktif, halaman **LLM Calls** (`/llm`) menampilkan 300 call terakhir beserta filter dan detail per call.
+
+| Variabel | Default | Fungsi |
+| :--- | :--- | :--- |
+| `LLM_LOG_CALLS` | `true` | Baris `[LLM]` di console (dashboard tetap mencatat walau `false`) |
+| `LLM_LOG_PAYLOADS` | `false` | Ikut catat isi prompt & response, data pribadi/secret disensor dan dipotong. Hanya untuk debugging |
+| `LLM_LOG_PAYLOAD_MAX_CHARS` | `2000` | Batas panjang isi yang dicatat (100–20000) |
+| `BRIDGE_LOG_PAYLOADS` / `BRIDGE_LOG_PAYLOAD_MAX_CHARS` | `false` / `2000` | Sama, untuk proses bridge di host |
+
 ### 3. Migrasi Database
 Terapkan skema tabel ke PostgreSQL:
 ```bash

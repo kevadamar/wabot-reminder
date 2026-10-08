@@ -102,6 +102,17 @@ describe('LLM config', () => {
     expect(loadLlmConfig({}).visionBudgetMs).toBe(8000);
   });
 
+  it('logs call metadata by default and keeps payload logging off', () => {
+    const config = loadLlmConfig({});
+    expect(config.logging).toEqual({ calls: true, payloads: false, payloadMaxChars: 2000 });
+  });
+
+  it('enables payload logging with a warning when LLM_LOG_PAYLOADS=true', () => {
+    const config = loadLlmConfig({ LLM_LOG_PAYLOADS: 'true', LLM_LOG_PAYLOAD_MAX_CHARS: '500', LLM_LOG_CALLS: 'false' });
+    expect(config.logging).toEqual({ calls: false, payloads: true, payloadMaxChars: 500 });
+    expect(config.warnings.some((warning) => warning.includes('LLM_LOG_PAYLOADS'))).toBe(true);
+  });
+
   it('lets LLM_VISION_BUDGET_MS override the vision budget', () => {
     expect(loadLlmConfig({ LLM_VISION_BUDGET_MS: '15000' }).visionBudgetMs).toBe(15000);
   });

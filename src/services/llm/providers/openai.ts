@@ -1,4 +1,4 @@
-import { LlmError, kindFromStatus, parseRetryAfter } from '../errors.js';
+import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter } from '../errors.js';
 import type { LlmProvider, LlmRequest, LlmResult, TokenUsage } from '../types.js';
 
 function usageFrom(body: { usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } }): TokenUsage {
@@ -65,17 +65,22 @@ export function createOpenAiProvider(options: {
       } catch {
         throw new LlmError(req.signal.aborted ? 'timeout' : 'network');
       }
+      const providerRequestId = response.headers.get('x-request-id') || undefined;
       if (!response.ok) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
-        throw new LlmError(kindFromStatus(response.status, retryAfter !== undefined), response.status, retryAfter);
+        const detail = await errorDetailFrom(response, [options.apiKey]);
+        throw new LlmError(kindFromStatus(response.status, retryAfter !== undefined), response.status, retryAfter, {
+          detail,
+          providerRequestId,
+        });
       }
       const payload = (await response.json()) as {
         choices?: { message?: { content?: string } }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
       const text = payload.choices?.[0]?.message?.content?.trim() || '';
-      if (!text) throw new LlmError('invalid_output');
-      return { text, model: options.model, usage: usageFrom(payload) };
+      if (!text) throw new LlmError('invalid_output', undefined, undefined, { providerRequestId });
+      return { text, model: options.model, usage: usageFrom(payload), providerRequestId };
     },
   };
 }

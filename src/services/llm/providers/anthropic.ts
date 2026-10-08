@@ -1,4 +1,4 @@
-import { LlmError, kindFromStatus, parseRetryAfter } from '../errors.js';
+import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter } from '../errors.js';
 import type { LlmProvider, LlmRequest, LlmResult } from '../types.js';
 
 export function createAnthropicProvider(options: {
@@ -52,19 +52,25 @@ export function createAnthropicProvider(options: {
       } catch {
         throw new LlmError(req.signal.aborted ? 'timeout' : 'network');
       }
+      const providerRequestId = response.headers.get('request-id') || undefined;
       if (!response.ok) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
-        throw new LlmError(kindFromStatus(response.status, retryAfter !== undefined), response.status, retryAfter);
+        const detail = await errorDetailFrom(response, [options.apiKey]);
+        throw new LlmError(kindFromStatus(response.status, retryAfter !== undefined), response.status, retryAfter, {
+          detail,
+          providerRequestId,
+        });
       }
       const payload = (await response.json()) as {
         content?: { type?: string; text?: string }[];
         usage?: { input_tokens?: number; output_tokens?: number };
       };
       const text = payload.content?.find((block) => block.type === 'text')?.text?.trim() || '';
-      if (!text) throw new LlmError('invalid_output');
+      if (!text) throw new LlmError('invalid_output', undefined, undefined, { providerRequestId });
       return {
         text,
         model: options.model,
+        providerRequestId,
         usage: {
           promptTokens: payload.usage?.input_tokens ?? null,
           outputTokens: payload.usage?.output_tokens ?? null,

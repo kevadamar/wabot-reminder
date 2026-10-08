@@ -18,6 +18,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     <nav class="topbar-nav" aria-label="Navigasi Halaman">
       <a href="/" class="nav-tab active">Overview & Controls</a>
       <a href="/activity" class="nav-tab">Activity (APM)</a>
+      <a href="/llm" class="nav-tab">LLM Calls</a>
       <a href="/settings" class="nav-tab">Settings</a>
     </nav>
     <div class="topbar-actions">

@@ -5,6 +5,8 @@ import { recordAiUsage, telemetry } from './telemetry.js';
 import { createGeminiProvider } from './llm/providers/gemini.js';
 import { providersForOperation } from './llm/registry.js';
 import type { LlmProvider } from './llm/types.js';
+import { createCallTracer, productionObserver, type ChainDeps } from './llm/chain.js';
+import { classify } from './llm/errors.js';
 import {
   dailyDigestDeliveries,
   dailyMotivations,
@@ -491,6 +493,7 @@ export async function generateMorningMotivation(options: {
   client?: any;
   model?: string;
   timeoutMs?: number;
+  observer?: Pick<ChainDeps, 'observe' | 'payloadMaxChars'>;
 } = {}): Promise<MorningMotivationGeneration> {
   const cfg = getLlmConfig();
   const timeoutMs = options.timeoutMs ?? Math.min(cfg.gemini.timeoutMs, 1800);
@@ -512,22 +515,37 @@ export async function generateMorningMotivation(options: {
   }
   if (providers.length === 0) throw new Error('MORNING_MOTIVATION_AI_UNAVAILABLE');
 
+  const request = {
+    system:
+      'Kamu menulis pantun penyemangat pagi Bahasa Indonesia. Balas hanya isi pantun, 2 sampai 4 baris, hangat dan natural, maksimal 220 karakter. Hindari kutipan, markdown, URL, nasihat panjang, dan klaim tentang agenda pengguna.',
+    userContent: 'Buat satu pantun untuk pagi ini.',
+    maxOutputTokens: 128,
+    candidateCount: 1,
+    thinkingLevel: 'MINIMAL' as const,
+  };
+  const tracer = createCallTracer(
+    'morning_motivation',
+    request,
+    options.observer ?? (options.client === undefined ? productionObserver() : {})
+  );
+
   let lastError: unknown;
   for (const provider of providers) {
     const signal = AbortSignal.timeout(Math.min(provider.timeoutMs, timeoutMs));
     const startedAt = performance.now();
+    const requestId = tracer.nextId();
+    let responseText: string | null = null;
     try {
-      const result = await provider.generate({
-        operation: 'morning_motivation',
-        system:
-          'Kamu menulis pantun penyemangat pagi Bahasa Indonesia. Balas hanya isi pantun, 2 sampai 4 baris, hangat dan natural, maksimal 220 karakter. Hindari kutipan, markdown, URL, nasihat panjang, dan klaim tentang agenda pengguna.',
-        userContent: 'Buat satu pantun untuk pagi ini.',
-        maxOutputTokens: 128,
-        candidateCount: 1,
-        thinkingLevel: 'MINIMAL',
-        signal,
-      });
+      const result = await provider.generate({ ...request, operation: 'morning_motivation', signal, requestId });
+      responseText = result.text;
       if (!validateMorningMotivation(result.text)) throw new Error('INVALID_MORNING_MOTIVATION');
+      tracer.emit(provider.id, result.model ?? provider.model, 'success', {
+        id: requestId,
+        durationMs: performance.now() - startedAt,
+        providerRequestId: result.providerRequestId,
+        usage: result.usage,
+        responseText,
+      });
       recordAiUsage(telemetry, {
         operation: 'morning_motivation',
         provider: provider.id,
@@ -543,6 +561,8 @@ export async function generateMorningMotivation(options: {
       };
     } catch (error) {
       lastError = error;
+      const kind = responseText !== null && !signal.aborted ? 'invalid_output' : classify(error, signal);
+      tracer.failure(provider, requestId, kind, error, startedAt, responseText);
       recordAiUsage(telemetry, {
         operation: 'morning_motivation',
         provider: provider.id,

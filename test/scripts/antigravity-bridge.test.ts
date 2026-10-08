@@ -105,6 +105,58 @@ describe('Antigravity bridge', () => {
     expect(await response.text()).not.toContain('killed');
   });
 
+  describe('observability', () => {
+    const auth = { Authorization: 'Bearer bridge-token' };
+
+    it('echoes a valid X-Request-Id and logs one line per request with it', async () => {
+      const lines: string[] = [];
+      const response = await handleBridgeRequest(
+        post('{"prompt":"halo 081234567890"}', { ...auth, 'X-Request-Id': 'abcd1234-2' }),
+        deps({ log: (line) => lines.push(line) })
+      );
+      expect(response.headers.get('x-request-id')).toBe('abcd1234-2');
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('abcd1234-2');
+      expect(lines[0]).toContain('200');
+      expect(lines[0]).toMatch(/prompt \d+c/);
+      expect(lines[0]).toContain('output 5c');
+      expect(lines.join('\n')).not.toContain('081234567890');
+    });
+
+    it('replaces an unsafe request id with a generated one', async () => {
+      const response = await handleBridgeRequest(
+        post('{"prompt":"halo"}', { ...auth, 'X-Request-Id': 'bad id; with spaces' }),
+        deps({ log: () => {} })
+      );
+      const id = response.headers.get('x-request-id') ?? '';
+      expect(id).toMatch(/^bridge-[a-f0-9]{8}$/);
+    });
+
+    it('logs rejected requests with their status and error code', async () => {
+      const lines: string[] = [];
+      await handleBridgeRequest(post('{"prompt":"halo"}'), deps({ log: (line) => lines.push(line) }));
+      expect(lines[0]).toContain('401');
+      expect(lines[0]).toContain('unauthorized');
+    });
+
+    it('does not log /health checks', async () => {
+      const lines: string[] = [];
+      await handleBridgeRequest(new Request('http://bridge.local/health'), deps({ log: (line) => lines.push(line) }));
+      expect(lines).toHaveLength(0);
+    });
+
+    it('logs redacted prompt and output only when payload logging is enabled', async () => {
+      const lines: string[] = [];
+      await handleBridgeRequest(
+        post('{"prompt":"telepon 081234567890 besok"}', auth),
+        deps({ log: (line) => lines.push(line), payloadMaxChars: 500 })
+      );
+      const text = lines.join('\n');
+      expect(text).toContain('prompt: telepon [nomor] besok');
+      expect(text).toContain('output: hasil');
+    });
+  });
+
   describe('images', () => {
     const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     const auth = { Authorization: 'Bearer bridge-token' };

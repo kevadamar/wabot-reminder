@@ -90,6 +90,49 @@ describe('Morning motivation validation', () => {
 
     await expect(generateMorningMotivation({ client, model: 'gemini-test', timeoutMs: 5 })).rejects.toThrow('aborted');
   });
+
+  it('reports each provider attempt to the LLM call observer', async () => {
+    const records: any[] = [];
+    const client = {
+      models: {
+        generateContent: async () => ({
+          text: 'Pagi cerah membuka hari,\nSemoga semua urusan lancar.',
+          usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 12, totalTokenCount: 32 },
+        }),
+      },
+    };
+    await generateMorningMotivation({
+      client,
+      model: 'gemini-test',
+      timeoutMs: 100,
+      observer: { observe: (r) => records.push(r), payloadMaxChars: 0 },
+    });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      operation: 'morning_motivation',
+      provider: 'gemini',
+      outcome: 'success',
+      response: { chars: 52 },
+      payload: null,
+    });
+    expect(records[0].id).toMatch(/^[0-9a-f]{8}-1$/);
+  });
+
+  it('reports a failed attempt with its error kind', async () => {
+    const records: any[] = [];
+    const client = { models: { generateContent: async () => ({ text: 'bukan pantun' }) } };
+    await expect(
+      generateMorningMotivation({
+        client,
+        model: 'gemini-test',
+        timeoutMs: 100,
+        observer: { observe: (r) => records.push(r) },
+      })
+    ).rejects.toThrow('INVALID_MORNING_MOTIVATION');
+    expect(records).toHaveLength(1);
+    expect(records[0].outcome).toBe('invalid_output');
+    expect(records[0].response).toEqual({ chars: 12 });
+  });
 });
 
 describe('Morning digest formatting', () => {

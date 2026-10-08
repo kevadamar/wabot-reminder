@@ -27,6 +27,29 @@ import {
   SETTINGS_JS,
 } from './assets.js';
 import { getAdminInstagram, setAdminInstagram } from '../services/settings.js';
+import { LLM_CSS, LLM_HTML, LLM_JS } from './llm-assets.js';
+import { llmCallLog, type LlmCallSummary } from '../services/llm/call-log.js';
+
+function matchesOutcomeGroup(call: LlmCallSummary, group: string): boolean {
+  if (group === 'success') return call.outcome === 'success';
+  if (group === 'fallback') return call.outcome === 'fallback';
+  if (group === 'skipped') return call.outcome.startsWith('skipped');
+  if (group === 'error') return call.outcome !== 'success' && call.outcome !== 'fallback' && !call.outcome.startsWith('skipped');
+  return true;
+}
+
+export function listLlmCalls(params: URLSearchParams): { payloadLogging: boolean; calls: LlmCallSummary[] } {
+  const limit = Math.min(300, Math.max(1, Number(params.get('limit')) || 100));
+  const operation = params.get('operation');
+  const provider = params.get('provider');
+  const outcome = params.get('outcome');
+  const calls = llmCallLog
+    .list()
+    .filter((call) => (!operation || call.operation === operation) && (!provider || call.provider === provider))
+    .filter((call) => !outcome || matchesOutcomeGroup(call, outcome))
+    .slice(0, limit);
+  return { payloadLogging: getLlmConfig().logging.payloads, calls };
+}
 
 const ACTIVE_TASK_STATUSES = ['pending', 'pending_deadline', 'pending_confirmation', 'pending_risk_confirmation'];
 
@@ -1032,6 +1055,25 @@ export function createDashboardHandler(options: {
       }
       if (pathname === '/settings') {
         return new Response(SETTINGS_HTML, { headers: secureHeaders('text/html; charset=utf-8') });
+      }
+      if (pathname === '/llm') {
+        return new Response(LLM_HTML, { headers: secureHeaders('text/html; charset=utf-8') });
+      }
+      if (pathname === '/llm.css') {
+        return new Response(LLM_CSS, { headers: secureHeaders('text/css; charset=utf-8') });
+      }
+      if (pathname === '/llm.js') {
+        return new Response(LLM_JS, { headers: secureHeaders('text/javascript; charset=utf-8') });
+      }
+      if (pathname === '/api/llm-calls') {
+        return Response.json(listLlmCalls(url.searchParams), { headers: secureHeaders('application/json; charset=utf-8') });
+      }
+      if (pathname === '/api/llm-calls/detail') {
+        const call = llmCallLog.get(url.searchParams.get('id') || '');
+        if (!call) {
+          return Response.json({ error: 'CALL_NOT_FOUND' }, { status: 404, headers: secureHeaders('application/json; charset=utf-8') });
+        }
+        return Response.json(call, { headers: secureHeaders('application/json; charset=utf-8') });
       }
       if (pathname === '/settings.css') {
         return new Response(SETTINGS_CSS, { headers: secureHeaders('text/css; charset=utf-8') });

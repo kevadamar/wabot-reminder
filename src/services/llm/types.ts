@@ -40,12 +40,14 @@ export interface LlmRequest {
   signal: AbortSignal;
   thinkingLevel?: string;
   candidateCount?: number;
+  requestId?: string;
 }
 
 export interface LlmResult {
   text: string;
   usage?: TokenUsage;
   model?: string;
+  providerRequestId?: string;
 }
 
 export interface LlmProvider {

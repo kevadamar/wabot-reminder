@@ -1,14 +1,41 @@
+import { redactPersonalData } from './redact.js';
 import type { ErrorKind } from './types.js';
 
 export class LlmError extends Error {
+  readonly detail?: string;
+  readonly providerRequestId?: string;
+
   constructor(
     readonly kind: ErrorKind,
     readonly status?: number,
-    readonly retryAfterMs?: number
+    readonly retryAfterMs?: number,
+    extra: { detail?: string; providerRequestId?: string } = {}
   ) {
     super(kind);
     this.name = 'LlmError';
+    this.detail = extra.detail;
+    this.providerRequestId = extra.providerRequestId;
   }
+}
+
+/** Reads a short, secret-free error message from a failed provider response. */
+export async function errorDetailFrom(response: Response, secrets: string[] = []): Promise<string | undefined> {
+  let raw = '';
+  try {
+    raw = await response.text();
+  } catch {
+    return undefined;
+  }
+  let message = raw;
+  try {
+    const body = JSON.parse(raw) as { error?: unknown; message?: unknown };
+    const error = body.error as { message?: unknown } | string | undefined;
+    if (typeof error === 'string') message = error;
+    else if (error && typeof error.message === 'string') message = error.message;
+    else if (typeof body.message === 'string') message = body.message;
+  } catch {}
+  const cleaned = redactPersonalData(redactSecrets(message.replace(/\s+/g, ' ').trim(), secrets)).slice(0, 200);
+  return cleaned || undefined;
 }
 
 export function kindFromStatus(status: number, hasRetryAfter: boolean): ErrorKind {

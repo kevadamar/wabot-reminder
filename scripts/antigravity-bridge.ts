@@ -13,10 +13,11 @@
  * exposed to the CLI with `--add-dir`, referenced by path in the prompt, and deleted afterwards.
  */
 
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { redactForLog } from '../src/services/llm/redact.ts';
 
 const PORT = parseInt(process.env.PORT || '7860', 10);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -40,6 +41,10 @@ export interface BridgeDeps {
   maxConcurrent: number;
   processTimeoutMs: number;
   state: { inFlight: number };
+  /** One line per request; defaults to silent. */
+  log?: (line: string) => void;
+  /** >0 also logs the redacted prompt and output, truncated to this many characters. */
+  payloadMaxChars?: number;
   spawn: (
     command: string[],
     options: { stdout: 'pipe'; stderr: 'pipe'; signal: AbortSignal; killSignal: 'SIGKILL' }
@@ -84,11 +89,57 @@ function decodeImages(raw: unknown, maxImageBytes: number): DecodedImage[] | Res
   return decoded;
 }
 
+interface RequestTrace {
+  prompt: string;
+  imageCount: number;
+  imageBytes: number;
+  output: string | null;
+  exitCode: number | null;
+  stderr: string;
+}
+
+const REQUEST_ID = /^[A-Za-z0-9._-]{1,64}$/;
+
 export async function handleBridgeRequest(req: Request, deps: BridgeDeps): Promise<Response> {
   const url = new URL(req.url);
   if (req.method === 'GET' && url.pathname === '/health') {
     return Response.json({ status: 'ok', service: 'antigravity-cli-bridge' });
   }
+  const presentedId = req.headers.get('x-request-id') ?? '';
+  const requestId = REQUEST_ID.test(presentedId) ? presentedId : `bridge-${randomBytes(4).toString('hex')}`;
+  const trace: RequestTrace = { prompt: '', imageCount: 0, imageBytes: 0, output: null, exitCode: null, stderr: '' };
+  const started = Date.now();
+  const response = await processRequest(req, url, deps, trace);
+  response.headers.set('x-request-id', requestId);
+
+  const log = deps.log ?? (() => {});
+  let errorCode = '';
+  if (!response.ok) {
+    errorCode = await response
+      .clone()
+      .json()
+      .then((body) => (body as { error?: string }).error ?? '')
+      .catch(() => '');
+  }
+  const parts = [
+    `[Bridge] ${requestId} ${req.method} ${url.pathname} → ${response.status} ${errorCode || 'ok'} ${Date.now() - started}ms`,
+  ];
+  if (trace.prompt) parts.push(`prompt ${trace.prompt.length}c`);
+  if (trace.imageCount) parts.push(`${trace.imageCount} gambar (${Math.max(1, Math.round(trace.imageBytes / 1024))} KB)`);
+  if (trace.output !== null) parts.push(`output ${trace.output.length}c`);
+  if (trace.exitCode !== null && trace.exitCode !== 0) {
+    parts.push(`exit ${trace.exitCode}`, `stderr: ${redactForLog(trace.stderr.replace(/\s+/g, ' ').trim(), 200)}`);
+  }
+  log(parts.join(' · '));
+  const maxChars = deps.payloadMaxChars ?? 0;
+  if (maxChars > 0 && trace.prompt) {
+    log(`   ↳ prompt: ${redactForLog(trace.prompt, maxChars)}`);
+    if (trace.output !== null) log(`   ↳ output: ${redactForLog(trace.output, maxChars)}`);
+  }
+  return response;
+}
+
+async function processRequest(req: Request, url: URL, deps: BridgeDeps, trace: RequestTrace): Promise<Response> {
   if (req.method !== 'POST' || (url.pathname !== '/generate' && url.pathname !== '/prompt')) {
     return new Response('Not Found', { status: 404 });
   }
@@ -115,16 +166,18 @@ export async function handleBridgeRequest(req: Request, deps: BridgeDeps): Promi
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
   if (!prompt) return Response.json({ error: 'prompt_required' }, { status: 400 });
   if (prompt.length > deps.maxPromptChars) return Response.json({ error: 'payload_too_large' }, { status: 413 });
+  trace.prompt = prompt;
 
   const images = decodeImages(body.images, deps.maxImageBytes);
   if (images instanceof Response) return images;
+  trace.imageCount = images.length;
+  trace.imageBytes = images.reduce((sum, image) => sum + image.bytes.length, 0);
 
   if (deps.state.inFlight >= deps.maxConcurrent) {
     return Response.json({ error: 'busy' }, { status: 429 });
   }
 
   deps.state.inFlight += 1;
-  const started = Date.now();
   let imageDir: string | null = null;
   try {
     const command = ['agy', '-p', prompt, '--output-format', 'text'];
@@ -154,12 +207,13 @@ export async function handleBridgeRequest(req: Request, deps: BridgeDeps): Promi
     const exitCode = await Promise.race([proc.exited, cancel]);
     const output = await Promise.race([new Response(proc.stdout ?? undefined).text(), cancel]);
     const errOutput = await Promise.race([new Response(proc.stderr ?? undefined).text(), cancel]);
+    trace.exitCode = exitCode;
     if (exitCode !== 0) {
-      console.error(`[Bridge] agy exited ${exitCode} after ${Date.now() - started}ms: ${errOutput.slice(0, 200)}`);
+      trace.stderr = errOutput;
       return Response.json({ error: 'cli_failed' }, { status: 502 });
     }
-    console.log(`[Bridge] selesai dalam ${Date.now() - started}ms (${prompt.length} chars, ${images.length} gambar)`);
-    return Response.json({ text: output.trim() });
+    trace.output = output.trim();
+    return Response.json({ text: trace.output });
   } catch {
     return Response.json({ error: 'timeout' }, { status: 504 });
   } finally {
@@ -174,6 +228,8 @@ if (import.meta.main) {
     console.warn('⚠️ ANTIGRAVITY_BRIDGE_TOKEN kosong. Pasang token sebelum bridge bisa dijangkau dari container.');
   }
   const processTimeoutMs = Number(process.env.ANTIGRAVITY_TIMEOUT_MS || 25_000);
+  const logPayloads = process.env.BRIDGE_LOG_PAYLOADS?.trim().toLowerCase() === 'true';
+  const payloadMaxChars = Number(process.env.BRIDGE_LOG_PAYLOAD_MAX_CHARS || 2000);
   const state = { inFlight: 0 };
   Bun.serve({
     port: PORT,
@@ -190,8 +246,13 @@ if (import.meta.main) {
         processTimeoutMs,
         state,
         spawn: (command, options) => Bun.spawn(command, options),
+        log: (line) => console.log(line),
+        payloadMaxChars: logPayloads ? payloadMaxChars : 0,
       });
     },
   });
   console.log(`✅ Antigravity CLI Bridge siap di http://${HOST}:${PORT}`);
+  if (logPayloads) {
+    console.warn('⚠️ BRIDGE_LOG_PAYLOADS aktif: isi prompt/output (disensor & dipotong) ikut dicatat di log bridge.');
+  }
 }

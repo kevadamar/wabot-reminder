@@ -57,6 +57,7 @@ export interface LlmConfig {
   anthropic: { model: string; timeoutMs: number; configured: boolean };
   antigravity: { url: string; timeoutMs: number; configured: boolean };
   insecureHosts: string[];
+  logging: { calls: boolean; payloads: boolean; payloadMaxChars: number };
   warnings: string[];
   reveal(id: ProviderId): string;
   toJSON(): unknown;
@@ -247,6 +248,17 @@ export function loadLlmConfig(env: Record<string, string | undefined>): LlmConfi
     antigravity: bridgeToken,
   };
 
+  const logging = {
+    calls: env.LLM_LOG_CALLS?.trim().toLowerCase() !== 'false',
+    payloads: env.LLM_LOG_PAYLOADS?.trim().toLowerCase() === 'true',
+    payloadMaxChars: readInt(env, 'LLM_LOG_PAYLOAD_MAX_CHARS', 2000, 100, 20_000),
+  };
+  if (logging.payloads) {
+    warnings.push(
+      'LLM_LOG_PAYLOADS aktif: isi prompt/response (sudah disensor & dipotong) dicatat di log dan dashboard. Matikan setelah selesai debugging.'
+    );
+  }
+
   const budgetMs = readInt(env, 'LLM_TOTAL_BUDGET_MS', 28_000, 100, 120_000);
   const slowVision = chains.vision_screen.includes('antigravity');
 
@@ -283,6 +295,7 @@ export function loadLlmConfig(env: Record<string, string | undefined>): LlmConfi
       configured: configured.antigravity,
     },
     insecureHosts,
+    logging,
     warnings,
   };
 

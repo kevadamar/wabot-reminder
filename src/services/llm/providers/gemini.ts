@@ -1,4 +1,5 @@
 import { LlmError, kindFromStatus } from '../errors.js';
+import { redactPersonalData } from '../redact.js';
 import type { LlmProvider, LlmRequest, LlmResult } from '../types.js';
 
 interface GeminiClient {
@@ -76,7 +77,11 @@ export function createGeminiProvider(options: {
       } catch (err) {
         if (err instanceof LlmError) throw err;
         const status = statusOf(err);
-        if (status) throw new LlmError(kindFromStatus(status, false), status);
+        if (status) {
+          const message = err instanceof Error ? err.message : '';
+          const detail = redactPersonalData(message.replace(/\s+/g, ' ').trim()).slice(0, 200) || undefined;
+          throw new LlmError(kindFromStatus(status, false), status, undefined, { detail });
+        }
         throw err;
       }
     },
