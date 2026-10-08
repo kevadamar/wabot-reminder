@@ -116,6 +116,7 @@ export const LLM_CSS = `
 .llm-outcome.fail{color:var(--danger);border-color:var(--danger)}
 .llm-outcome.fallback{color:var(--warn);border-color:var(--warn)}
 .llm-outcome.skip{color:var(--muted)}
+.llm-why{margin-top:.3rem;max-width:280px;font-size:.72rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .llm-mono{font-family:ui-monospace,monospace;font-size:.78rem}
 .llm-payload{background:rgba(0,0,0,.3);border:1px solid var(--line);padding:.85rem;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,monospace;font-size:.78rem;max-height:320px;overflow:auto;margin:0}
 .llm-section-title{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 .5rem}
@@ -196,6 +197,12 @@ export const LLM_JS = `(() => {
     for (const c of calls) {
       const tr = document.createElement('tr');
       const outcomeTd = document.createElement('td'); outcomeTd.append(badge(c.outcome));
+      if (c.errorDetail || c.httpStatus) {
+        const why = document.createElement('div'); why.className = 'llm-why';
+        why.textContent = [c.httpStatus ? 'HTTP ' + c.httpStatus : '', c.errorDetail || ''].filter(Boolean).join(' · ');
+        why.title = why.textContent;
+        outcomeTd.append(why);
+      }
       const target = c.model ? c.provider + ' · ' + c.model : c.provider;
       tr.append(
         cell(fmtTime(c.at), 'llm-mono'),

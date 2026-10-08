@@ -78,6 +78,21 @@ export function classify(err: unknown, signal?: AbortSignal): ErrorKind {
   return 'network';
 }
 
+/** fetch() rejected before any HTTP response: keep the cause (ConnectionRefused, ENOTFOUND, ...) and target host. */
+export function transportError(err: unknown, signal: AbortSignal, url: string): LlmError {
+  if (signal.aborted) return new LlmError('timeout');
+  const record = err as { code?: unknown; name?: unknown; message?: unknown } | null;
+  const code = typeof record?.code === 'string' ? record.code : typeof record?.name === 'string' ? record.name : 'Error';
+  const message = typeof record?.message === 'string' ? record.message : String(err);
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {}
+  return new LlmError('network', undefined, undefined, {
+    detail: redactPersonalData(`${code}: ${message} (${host})`).slice(0, 200),
+  });
+}
+
 export function redactSecrets(text: string, secrets: string[]): string {
   let out = text;
   for (const secret of secrets) {

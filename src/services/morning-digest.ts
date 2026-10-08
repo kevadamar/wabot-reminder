@@ -531,7 +531,8 @@ export async function generateMorningMotivation(options: {
 
   let lastError: unknown;
   for (const provider of providers) {
-    const signal = AbortSignal.timeout(Math.min(provider.timeoutMs, timeoutMs));
+    const limitMs = Math.min(provider.timeoutMs, timeoutMs);
+    const signal = AbortSignal.timeout(limitMs);
     const startedAt = performance.now();
     const requestId = tracer.nextId();
     let responseText: string | null = null;
@@ -562,7 +563,10 @@ export async function generateMorningMotivation(options: {
     } catch (error) {
       lastError = error;
       const kind = responseText !== null && !signal.aborted ? 'invalid_output' : classify(error, signal);
-      tracer.failure(provider, requestId, kind, error, startedAt, responseText);
+      tracer.failure(provider, requestId, kind, error, startedAt, {
+        responseText,
+        detail: kind === 'timeout' ? `Tidak ada respons dalam ${limitMs} ms (batas pantun pagi)` : undefined,
+      });
       recordAiUsage(telemetry, {
         operation: 'morning_motivation',
         provider: provider.id,

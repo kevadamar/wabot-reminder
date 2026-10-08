@@ -91,7 +91,30 @@ type CallExtra = Partial<
 export interface CallTracer {
   nextId: () => string;
   emit: (provider: string, model: string | null, outcome: string, extra?: CallExtra) => void;
-  failure: (provider: LlmProvider, id: string, kind: string, err: unknown, startedAt: number, responseText?: string | null) => void;
+  failure: (
+    provider: LlmProvider,
+    id: string,
+    kind: string,
+    err: unknown,
+    startedAt: number,
+    extra?: { responseText?: string | null; detail?: string }
+  ) => void;
+}
+
+const TIMEOUT_ENV: Record<LlmProvider['id'], string> = {
+  gemini: 'GEMINI_TIMEOUT_MS',
+  openai: 'OPENAI_TIMEOUT_MS',
+  anthropic: 'ANTHROPIC_TIMEOUT_MS',
+  antigravity: 'ANTIGRAVITY_TIMEOUT_MS',
+};
+
+/** Names the limit that fired, so a timeout row says which env var to raise. */
+export function timeoutDetail(operation: Operation, provider: LlmProvider, limitMs: number): string {
+  const source =
+    limitMs < provider.timeoutMs
+      ? `sisa ${operation === 'vision_screen' ? 'LLM_VISION_BUDGET_MS' : 'LLM_TOTAL_BUDGET_MS'}`
+      : TIMEOUT_ENV[provider.id];
+  return `Tidak ada respons dalam ${Math.round(limitMs)} ms (batas: ${source})`;
 }
 
 /** Builds one LlmCallRecord per provider attempt; ids are `${chainId}-${seq}` and travel as X-Request-Id. */
@@ -142,7 +165,7 @@ export function createCallTracer(
     });
   };
 
-  const failure: CallTracer['failure'] = (provider, id, kind, err, startedAt, responseText = null) => {
+  const failure: CallTracer['failure'] = (provider, id, kind, err, startedAt, extra = {}) => {
     const llmErr = err instanceof LlmError ? err : undefined;
     emit(provider.id, provider.model, kind, {
       id,
@@ -150,9 +173,10 @@ export function createCallTracer(
       httpStatus: llmErr?.status,
       errorDetail:
         llmErr?.detail ??
+        extra.detail ??
         (llmErr || !(err instanceof Error) ? undefined : redactPersonalData(err.message).slice(0, 200) || undefined),
       providerRequestId: llmErr?.providerRequestId,
-      responseText,
+      responseText: extra.responseText ?? null,
     });
   };
 
@@ -192,7 +216,8 @@ export async function runChain<T>(
         return fallback();
       }
 
-      const signal = AbortSignal.timeout(Math.min(provider.timeoutMs, remaining));
+      const limitMs = Math.min(provider.timeoutMs, remaining);
+      const signal = AbortSignal.timeout(limitMs);
       const startedAt = performance.now();
       const id = nextId();
       let responseText: string | null = null;
@@ -215,7 +240,10 @@ export async function runChain<T>(
         const kind = classify(err, signal);
         deps.breaker.onFailure(provider.id, kind);
         deps.record(operation, provider.id, kind, startedAt);
-        failure(provider, id, kind, err, startedAt, responseText);
+        failure(provider, id, kind, err, startedAt, {
+          responseText,
+          detail: kind === 'timeout' ? timeoutDetail(operation, provider, limitMs) : undefined,
+        });
         const retryable = kind === 'rate_limited' || kind === 'server_error';
         const retryAfter = err instanceof LlmError ? err.retryAfterMs : undefined;
         if (retryable && retries < deps.maxRetries) {

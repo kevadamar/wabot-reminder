@@ -205,6 +205,29 @@ describe('Antigravity provider', () => {
     expect(err.detail).toBe('cli_failed');
   });
 
+  it('explains an empty bridge reply in the error detail', async () => {
+    const fetchImpl = async () => Response.json({ text: '' });
+    const provider = createAntigravityProvider({ url: 'http://10.0.0.5:7860', token: '', timeoutMs: 1000, fetchImpl });
+    const err = await provider
+      .generate({ operation: 'affirmation', system: 's', userContent: 'u', maxOutputTokens: 10, signal })
+      .catch((e) => e);
+    expect(err.kind).toBe('invalid_output');
+    expect(err.detail).toContain('teks kosong');
+  });
+
+  it('keeps the connection failure cause and the target host in the error detail', async () => {
+    const fetchImpl = async () => {
+      throw Object.assign(new Error('Unable to connect. Is the computer able to access the url?'), { code: 'ConnectionRefused' });
+    };
+    const provider = createAntigravityProvider({ url: 'http://host.docker.internal:7860', token: '', timeoutMs: 1000, fetchImpl });
+    const err = await provider
+      .generate({ operation: 'affirmation', system: 's', userContent: 'u', maxOutputTokens: 10, signal })
+      .catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.detail).toContain('ConnectionRefused');
+    expect(err.detail).toContain('host.docker.internal:7860');
+  });
+
   it('omits the images field for text-only requests', async () => {
     let body: Record<string, unknown> = {};
     const fetchImpl = async (_url: string, options?: RequestInit) => {

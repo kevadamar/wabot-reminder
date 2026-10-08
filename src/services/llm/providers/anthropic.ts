@@ -1,4 +1,4 @@
-import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter } from '../errors.js';
+import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter, transportError } from '../errors.js';
 import type { LlmProvider, LlmRequest, LlmResult } from '../types.js';
 
 export function createAnthropicProvider(options: {
@@ -49,8 +49,8 @@ export function createAnthropicProvider(options: {
           signal: req.signal,
           redirect: 'error',
         });
-      } catch {
-        throw new LlmError(req.signal.aborted ? 'timeout' : 'network');
+      } catch (err) {
+        throw transportError(err, req.signal, 'https://api.anthropic.com/v1/messages');
       }
       const providerRequestId = response.headers.get('request-id') || undefined;
       if (!response.ok) {

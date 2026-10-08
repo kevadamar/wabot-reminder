@@ -139,6 +139,27 @@ describe('Antigravity bridge', () => {
       expect(lines[0]).toContain('unauthorized');
     });
 
+    it('treats an empty CLI output as a failure and logs stderr only on the bridge', async () => {
+      const lines: string[] = [];
+      const response = await handleBridgeRequest(
+        post('{"prompt":"halo"}', { ...auth, 'X-Request-Id': 'abcd1234-1' }),
+        deps({
+          log: (line) => lines.push(line),
+          spawn: () => ({
+            stdout: new Response('  \n').body,
+            stderr: new Response('Error: not logged in. Run agy login').body,
+            exited: Promise.resolve(0),
+          }),
+        })
+      );
+      expect(response.status).toBe(502);
+      const body = await response.text();
+      expect(body).toContain('empty_output');
+      expect(body).not.toContain('not logged in');
+      expect(lines[0]).toContain('502 empty_output');
+      expect(lines[0]).toContain('stderr: Error: not logged in. Run agy login');
+    });
+
     it('does not log /health checks', async () => {
       const lines: string[] = [];
       await handleBridgeRequest(new Request('http://bridge.local/health'), deps({ log: (line) => lines.push(line) }));

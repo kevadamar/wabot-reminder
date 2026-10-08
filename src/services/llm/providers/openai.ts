@@ -1,4 +1,4 @@
-import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter } from '../errors.js';
+import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter, transportError } from '../errors.js';
 import type { LlmProvider, LlmRequest, LlmResult, TokenUsage } from '../types.js';
 
 function usageFrom(body: { usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } }): TokenUsage {
@@ -62,8 +62,8 @@ export function createOpenAiProvider(options: {
           signal: req.signal,
           redirect: 'error',
         });
-      } catch {
-        throw new LlmError(req.signal.aborted ? 'timeout' : 'network');
+      } catch (err) {
+        throw transportError(err, req.signal, endpoint);
       }
       const providerRequestId = response.headers.get('x-request-id') || undefined;
       if (!response.ok) {

@@ -127,8 +127,9 @@ export async function handleBridgeRequest(req: Request, deps: BridgeDeps): Promi
   if (trace.prompt) parts.push(`prompt ${trace.prompt.length}c`);
   if (trace.imageCount) parts.push(`${trace.imageCount} gambar (${Math.max(1, Math.round(trace.imageBytes / 1024))} KB)`);
   if (trace.output !== null) parts.push(`output ${trace.output.length}c`);
-  if (trace.exitCode !== null && trace.exitCode !== 0) {
-    parts.push(`exit ${trace.exitCode}`, `stderr: ${redactForLog(trace.stderr.replace(/\s+/g, ' ').trim(), 200)}`);
+  if (trace.exitCode !== null && (trace.exitCode !== 0 || !response.ok)) {
+    const stderr = redactForLog(trace.stderr.replace(/\s+/g, ' ').trim(), 300);
+    parts.push(`exit ${trace.exitCode}`, `stderr: ${stderr || '(kosong)'}`);
   }
   log(parts.join(' · '));
   const maxChars = deps.payloadMaxChars ?? 0;
@@ -213,6 +214,10 @@ async function processRequest(req: Request, url: URL, deps: BridgeDeps, trace: R
       return Response.json({ error: 'cli_failed' }, { status: 502 });
     }
     trace.output = output.trim();
+    if (!trace.output) {
+      trace.stderr = errOutput;
+      return Response.json({ error: 'empty_output' }, { status: 502 });
+    }
     return Response.json({ text: trace.output });
   } catch {
     return Response.json({ error: 'timeout' }, { status: 504 });

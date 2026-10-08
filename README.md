@@ -387,6 +387,16 @@ Jika Anda sudah menginstal **Antigravity CLI** (`agy`) di VPS/Host server (di lu
    ```
    `http` ke `host.docker.internal` (atau IP privat lain di server yang sama) diizinkan tanpa konfigurasi tambahan. Posisi `antigravity` di `LLM_CHAIN_*` menentukan kapan bridge dipanggil: di depan berarti dipakai lebih dulu, di belakang berarti hanya sebagai cadangan.
 
+   Di Dokploy (Docker Swarm), `host.docker.internal` sering tidak bisa dipakai. Kalau dashboard **LLM Calls** menampilkan `network · ConnectionRefused` atau `ENOTFOUND`, pakai IP host yang dijangkau container (misalnya IP gateway `docker_gwbridge`/`docker0` atau IP privat VPS), dan jalankan bridge dengan `HOST` di IP itu:
+   ```bash
+   HOST=172.18.0.1 ANTIGRAVITY_BRIDGE_TOKEN=... pm2 start scripts/antigravity-bridge.ts --name agy-bridge --interpreter bun
+   ```
+   ```env
+   ANTIGRAVITY_BRIDGE_URL=http://172.18.0.1:7860
+   ```
+
+   Kalau call antigravity berakhir `empty_output` (atau `invalid_output · Bridge membalas teks kosong`), `agy` jalan tapi tidak mencetak jawaban. Biasanya karena proses pm2 tidak memakai `HOME`/sesi login yang sama dengan shell Anda. Cari ID call-nya di `pm2 logs agy-bridge`: baris `[Bridge] <id> … stderr: …` menunjukkan pesan asli dari CLI. Pastikan pm2 dijalankan oleh user yang sudah `agy` login, lalu `pm2 restart agy-bridge --update-env`.
+
 4. **(Opsional) Screening gambar lewat Antigravity**:
    Bridge meneruskan gambar ke `agy` lewat folder sementara privat yang langsung dihapus setelah dipakai (maks 4 gambar, 5 MB per gambar, JPEG/PNG/WebP/GIF). CLI butuh sekitar 13–30 detik per gambar, jadi naikkan timeout-nya:
    ```env

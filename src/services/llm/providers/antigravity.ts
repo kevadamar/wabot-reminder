@@ -1,4 +1,4 @@
-import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter } from '../errors.js';
+import { LlmError, errorDetailFrom, kindFromStatus, parseRetryAfter, transportError } from '../errors.js';
 import type { LlmProvider, LlmRequest, LlmResult } from '../types.js';
 
 export function createAntigravityProvider(options: {
@@ -35,7 +35,7 @@ export function createAntigravityProvider(options: {
         });
       } catch (err) {
         if (err instanceof LlmError) throw err;
-        throw new LlmError(req.signal.aborted ? 'timeout' : 'network');
+        throw transportError(err, req.signal, endpoint);
       }
       const providerRequestId = response.headers.get('x-request-id') || undefined;
       if (!response.ok) {
@@ -48,7 +48,12 @@ export function createAntigravityProvider(options: {
       }
       const data = (await response.json()) as { text?: string };
       const text = data.text?.trim() || '';
-      if (!text) throw new LlmError('invalid_output', undefined, undefined, { providerRequestId });
+      if (!text) {
+        throw new LlmError('invalid_output', undefined, undefined, {
+          providerRequestId,
+          detail: 'Bridge membalas teks kosong (cek stderr agy di log bridge)',
+        });
+      }
       return { text, providerRequestId };
     },
   };

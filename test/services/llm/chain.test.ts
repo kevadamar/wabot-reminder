@@ -192,6 +192,30 @@ describe('LLM chain', () => {
       expect(records.at(-1)).toMatchObject({ provider: 'local', outcome: 'fallback' });
     });
 
+    it('explains a timeout with the limit and the env var that sets it', async () => {
+      const records: LlmCallRecord[] = [];
+      const hang: LlmProvider['generate'] = (req) =>
+        new Promise((_resolve, reject) => req.signal.addEventListener('abort', () => reject(req.signal.reason)));
+      await runChain('nlp_parse', request, (t) => t, () => 'local', deps([provider('gemini', hang, 20)], {
+        observe: (r) => records.push(r),
+      }));
+      expect(records[0]).toMatchObject({ outcome: 'timeout' });
+      expect(records[0]?.errorDetail).toContain('20 ms');
+      expect(records[0]?.errorDetail).toContain('GEMINI_TIMEOUT_MS');
+    });
+
+    it('blames the total budget when it cut the attempt short', async () => {
+      const records: LlmCallRecord[] = [];
+      const hang: LlmProvider['generate'] = (req) =>
+        new Promise((_resolve, reject) => req.signal.addEventListener('abort', () => reject(req.signal.reason)));
+      await runChain('nlp_parse', request, (t) => t, () => 'local', deps([provider('antigravity', hang, 10_000)], {
+        budgetMs: 60,
+        observe: (r) => records.push(r),
+      }));
+      expect(records[0]?.errorDetail).toContain('60 ms');
+      expect(records[0]?.errorDetail).toContain('LLM_TOTAL_BUDGET_MS');
+    });
+
     it('records skipped providers and the local fallback', async () => {
       const records: LlmCallRecord[] = [];
       const breaker = new CircuitBreaker({ threshold: 1, windowMs: 10_000, cooldownMs: 10_000, now: () => 0 });
