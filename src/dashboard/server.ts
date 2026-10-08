@@ -28,7 +28,7 @@ import {
 } from './assets.js';
 import { getAdminInstagram, setAdminInstagram } from '../services/settings.js';
 
-const ACTIVE_TASK_STATUSES = ['pending', 'pending_deadline', 'pending_confirmation'];
+const ACTIVE_TASK_STATUSES = ['pending', 'pending_deadline', 'pending_confirmation', 'pending_risk_confirmation'];
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -618,7 +618,7 @@ export async function listDashboardTasks(
 
   const rows = await finalQuery
     .orderBy(
-      sql`CASE WHEN ${tasks.status} IN ('pending', 'pending_deadline', 'pending_confirmation') THEN 0 ELSE 1 END`,
+      sql`CASE WHEN ${tasks.status} IN ('pending', 'pending_deadline', 'pending_confirmation', 'pending_risk_confirmation') THEN 0 ELSE 1 END`,
       asc(tasks.deadline),
       desc(tasks.createdAt)
     )

@@ -195,6 +195,20 @@ When a new task (or a `pending_deadline` task receiving its time) has a deadline
 
 The reply is matched by quoting the prompt, or by the latest `pending_confirmation` task within 15 minutes. Unrelated messages fall through to normal routing, so the prompt never blocks the user.
 
+### 3.5 Risk Alert (judol / scam / phishing / malware)
+
+`src/services/risk.ts` scores task input in two layers:
+
+1. **Local rules** (always on, also when every LLM is down): Indonesian judol terms (with leetspeak normalization, e.g. `g4c0r`), scam patterns (sharing OTP/PIN, fake prizes, "biaya admin", blocked-account threats, guaranteed profit, "ganti nomor"), APK files, and link analysis (IP hosts, `@` tricks, punycode, shorteners, abuse-prone TLDs, domains imitating banks/e-wallets, gambling-like hosts). Weak signals (e.g. a lone "slot") never flag alone; forwarded messages get +1.
+2. **LLM verdict**: the NLP call returns `risk.category`, and the vision call returns `riskCategory` (now including judol). `mergeRisk` is a union, so text that tries to talk the model out of flagging cannot clear a local flag, and LLM reasons are stripped of links.
+
+Outcome:
+
+- Risky **task** (text, forwarded, or media): stored as `pending_risk_confirmation` (never reminded), and the user gets a casual alert with reasons and a safety tip. Media is stored with `safety_status = 'suspicious'` and never attached to an existing task.
+  - `lanjut` / `aman` → `confirmRiskTask` → `pending` (and the same-schedule check still runs), or `pending_deadline` with a time prompt.
+  - `batal` → `cancelled`.
+- Risky **non-task** message: awareness alert only, nothing is stored.
+
 ---
 
 ## 4. Database Entity-Relationship Diagram (ERD)

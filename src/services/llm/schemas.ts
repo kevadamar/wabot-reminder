@@ -1,8 +1,25 @@
 import { LlmError } from './errors.js';
 import { extractJsonObject } from './text.js';
+import type { LlmRiskCategory, LlmRiskVerdict } from '../risk.js';
 
 const SENTIMENTS = new Set(['distress', 'toxic', 'frustrated', 'neutral', 'positive']);
+const RISK_CATEGORY_VALUES = ['none', 'gambling', 'scam', 'phishing', 'malware'] as const;
 const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
+
+function parseRiskCategory(value: unknown): LlmRiskCategory | null {
+  return typeof value === 'string' && (RISK_CATEGORY_VALUES as readonly string[]).includes(value)
+    ? (value as LlmRiskCategory)
+    : null;
+}
+
+function parseRiskVerdict(value: unknown): LlmRiskVerdict {
+  if (!value || typeof value !== 'object') return { category: 'none', reason: null };
+  const data = value as Record<string, unknown>;
+  const category = parseRiskCategory(data.category);
+  if (!category || category === 'none') return { category: 'none', reason: null };
+  const reason = typeof data.reason === 'string' && data.reason.trim() ? data.reason.trim().slice(0, 300) : null;
+  return { category, reason };
+}
 
 export const NLP_JSON_SCHEMA = {
   type: 'object',
@@ -13,6 +30,14 @@ export const NLP_JSON_SCHEMA = {
     needsDeadline: { type: 'boolean' },
     reminderLeadMinutes: { type: 'integer' },
     sentiment: { type: 'string', enum: ['distress', 'toxic', 'frustrated', 'neutral', 'positive'] },
+    risk: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', enum: [...RISK_CATEGORY_VALUES] },
+        reason: { type: 'string' },
+      },
+      required: ['category'],
+    },
   },
   required: ['isTask', 'taskTitle', 'needsDeadline', 'sentiment'],
 } as const;
@@ -24,6 +49,7 @@ export interface NlpModelOutput {
   needsDeadline: boolean;
   reminderLeadMinutes: number | null;
   sentiment: 'distress' | 'toxic' | 'frustrated' | 'neutral' | 'positive';
+  risk: LlmRiskVerdict;
 }
 
 export function parseNlpModelOutput(text: string, now: Date): NlpModelOutput {
@@ -60,6 +86,7 @@ export function parseNlpModelOutput(text: string, now: Date): NlpModelOutput {
     needsDeadline: Boolean(data.needsDeadline),
     reminderLeadMinutes,
     sentiment,
+    risk: parseRiskVerdict(data.risk),
   };
 }
 
@@ -67,6 +94,7 @@ export const VISION_JSON_SCHEMA = {
   type: 'object',
   properties: {
     isSuspicious: { type: 'boolean' },
+    riskCategory: { type: 'string', enum: [...RISK_CATEGORY_VALUES] },
     safetyReason: { type: 'string' },
     ocrText: { type: 'string' },
     isTask: { type: 'boolean' },
@@ -78,6 +106,7 @@ export const VISION_JSON_SCHEMA = {
 
 export interface VisionModelOutput {
   isSuspicious: boolean;
+  riskCategory: LlmRiskCategory;
   safetyReason: string | null;
   ocrText: string;
   isTask: boolean;
@@ -99,8 +128,10 @@ export function parseVisionModelOutput(text: string): VisionModelOutput {
     const parsed = new Date(data.suggestedDeadline);
     suggestedDeadline = Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
   }
+  const riskCategory = parseRiskCategory(data.riskCategory);
   return {
     isSuspicious: data.isSuspicious,
+    riskCategory: data.isSuspicious ? (riskCategory && riskCategory !== 'none' ? riskCategory : 'scam') : 'none',
     safetyReason: typeof data.safetyReason === 'string' ? data.safetyReason.slice(0, 500) : null,
     ocrText: typeof data.ocrText === 'string' ? data.ocrText.slice(0, 4000) : '',
     isTask: Boolean(data.isTask),

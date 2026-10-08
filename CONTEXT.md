@@ -21,6 +21,11 @@ The lifecycle state of a task in the database.
 - `pending_deadline`: Task recorded but awaiting deadline specification from user.
 - `pending`: Active task with an established deadline awaiting completion.
 - `pending_confirmation`: New task whose deadline falls in the same minute as another active task of the user; held (never reminded) until the user confirms, picks another time, or cancels.
+- `pending_risk_confirmation`: New task (text or media) that looks like online gambling (judol), a scam, a phishing link, or a malicious APK; held (never reminded) until the user confirms it is safe or cancels it. See **Risk Alert**.
+
+**Risk Alert**:
+A casual warning sent when task input looks harmful to the user. Detection is a local rule layer plus an LLM verdict; the LLM can only add a flag, never clear one. It asks for confirmation instead of blocking.
+_Avoid_: Spam filter, content moderation
 - `resolved`: Completed task marked by the user via checkmark emoji or command.
 - `cancelled`: Task terminated by user before completion.
 _Avoid_: State, stage

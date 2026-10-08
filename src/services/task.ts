@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, lt, ne, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, lt, ne, or } from 'drizzle-orm';
 import {
   tasks,
   taskMessages,
@@ -24,6 +24,9 @@ export interface CreateTaskInput {
 }
 
 export const MIN_TASK_TITLE_LETTERS = 3;
+
+/** Statuses of tasks held until the user answers a confirmation prompt; never reminded. */
+export const HELD_TASK_STATUSES = ['pending_confirmation', 'pending_risk_confirmation'];
 
 /**
  * True when a task title has at least MIN_TASK_TITLE_LETTERS letters (any script);
@@ -407,7 +410,47 @@ export async function confirmTask(
 }
 
 /**
- * Finds the latest task awaiting same-schedule confirmation for context resolution fallback
+ * Activates a task held because it looked risky (judol / scam / phishing / malware), after the user
+ * confirmed it is safe. Without a deadline it becomes pending_deadline so the bot can ask for a time.
+ */
+export async function confirmRiskTask(
+  db: any,
+  taskId: number,
+  userJid: string,
+  rawInput?: string | null
+): Promise<Task | null> {
+  const existing = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userJid, userJid), eq(tasks.status, 'pending_risk_confirmation')))
+    .limit(1);
+  const held: Task | undefined = existing[0];
+  if (!held) return null;
+
+  const nextStatus = held.deadline ? 'pending' : 'pending_deadline';
+  const updated = await db
+    .update(tasks)
+    .set({ status: nextStatus, updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, 'pending_risk_confirmation')))
+    .returning();
+
+  if (updated[0]) {
+    await db.insert(taskHistory).values({
+      taskId: updated[0].id,
+      userJid,
+      changeType: 'confirm_risk',
+      fieldChanged: 'status',
+      oldValue: 'pending_risk_confirmation',
+      newValue: nextStatus,
+      rawInput: rawInput ?? null,
+    });
+  }
+
+  return updated[0] ?? null;
+}
+
+/**
+ * Finds the latest task awaiting user confirmation (same-schedule or risk) for context resolution fallback
  */
 export async function getLatestPendingConfirmationTask(
   db: any,
@@ -422,7 +465,7 @@ export async function getLatestPendingConfirmationTask(
     .where(
       and(
         eq(tasks.userJid, userJid),
-        eq(tasks.status, 'pending_confirmation'),
+        inArray(tasks.status, HELD_TASK_STATUSES),
         gt(tasks.updatedAt, windowTime)
       )
     )

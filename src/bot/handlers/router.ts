@@ -24,7 +24,16 @@ import {
   getLatestPendingConfirmationTask,
   hasEnoughTitleLetters,
   MIN_TASK_TITLE_LETTERS,
+  HELD_TASK_STATUSES,
+  confirmRiskTask,
 } from '../../services/task.js';
+import {
+  assessMediaRisk,
+  assessTextRisk,
+  mergeRisk,
+  type RiskAssessment,
+  type RiskCategory,
+} from '../../services/risk.js';
 import {
   parseTaskMessage,
   parseLocalTask,
@@ -107,6 +116,126 @@ export function formatDateTime(date: Date, timezone = 'Asia/Jakarta'): string {
   }
 }
 
+const RISK_LABELS: Record<RiskCategory, string> = {
+  gambling: 'judi online (judol)',
+  scam: 'modus penipuan',
+  phishing: 'link phishing',
+  malware: 'aplikasi/APK berbahaya',
+};
+
+const RISK_TIPS: Record<RiskCategory, string> = {
+  malware: '📵 Jangan install file APK dari chat ya, itu modus paling sering buat nyedot isi m-banking.',
+  phishing: '🔗 Jangan isi data login, OTP, atau data kartu di link yang nggak kamu kenal. Cek alamat situsnya pelan-pelan dulu.',
+  scam: '🛡️ Bank, kurir, dan instansi resmi nggak pernah minta OTP, PIN, atau transfer "biaya admin" lewat chat.',
+  gambling: '🎰 Judi online didesain bikin kalah dan sering jadi pintu ke pinjol & penipuan. Mending jauhi dulu ya 🙏',
+};
+
+type RiskAlertMode = 'task' | 'media' | 'info';
+
+function buildRiskAlertText(risk: RiskAssessment, mode: RiskAlertMode, title?: string): string {
+  const labels = risk.categories.map((c) => RISK_LABELS[c]).join(' & ');
+  const reasons = risk.reasons.slice(0, 3).map((r) => `• ${r}`).join('\n');
+  const tip = risk.categories[0] ? RISK_TIPS[risk.categories[0]] : '';
+  const subject = mode === 'media' ? 'Lampiran ini' : 'Pesan ini';
+  const titleLine = title ? `\n📝 *"${title.replace(/\s+/g, ' ').trim().slice(0, 80)}"*\n` : '';
+
+  const header =
+    `🚨 *Eits, tahan dulu ya!* ${subject} punya ciri-ciri *${labels}* 🧐${titleLine}\n` +
+    `Yang bikin aku curiga:\n${reasons}\n\n${tip}`;
+
+  if (mode === 'info') {
+    return `${header}\n\nAku nggak mencatat apa-apa dari pesan ini. Kalau memang ada tugas yang mau dicatat, tulis ulang pakai bahasamu sendiri ya ✨`;
+  }
+
+  const holdNote = mode === 'media' ? 'Lampirannya aku simpan sementara, tapi tugasnya' : 'Tugasnya';
+  return (
+    `${header}\n\n` +
+    `Kalau kamu yakin ini aman (misalnya memang catatan pribadimu), aku tetap catat kok:\n` +
+    `✅ Balas *lanjut* / *aman*: tetap dicatat\n` +
+    `❌ Balas *batal*: buang aja\n\n` +
+    `_${holdNote} belum aktif dan belum akan diingatkan sampai kamu pilih._`
+  );
+}
+
+async function askRiskConfirmation(
+  sock: any,
+  remoteJid: string,
+  heldTask: Task,
+  risk: RiskAssessment,
+  mode: 'task' | 'media'
+): Promise<void> {
+  console.warn(`🚨 [Risiko] Tugas ditahan (${risk.categories.join(',')}), menunggu konfirmasi pengguna.`);
+  const reply = await sock.sendMessage(remoteJid, { text: buildRiskAlertText(risk, mode, heldTask.task) });
+  if (reply?.key?.id) {
+    await linkTaskMessage(db, heldTask.id, reply.key.id);
+  }
+}
+
+/**
+ * Handles a reply to a risk alert. Confirming activates the task (and still runs the
+ * same-schedule check); unrelated text returns false so routing continues.
+ */
+async function handleRiskReply(
+  sock: any,
+  remoteJid: string,
+  user: { timezone: string },
+  heldTask: Task,
+  text: string
+): Promise<boolean> {
+  const decision = classifyConfirmationReply(text);
+
+  if (decision === 'reject') {
+    const cancelled = await cancelTask(db, heldTask.id, remoteJid, text);
+    if (!cancelled) return false;
+    await sock.sendMessage(remoteJid, {
+      text: `🛡️ Sip, *"${cancelled.task}"* aku buang ya. Good call, mending aman daripada nyesel! 👍\n\nKalau ada tugas lain yang mau dicatat, langsung kirim aja ✨`,
+    });
+    return true;
+  }
+
+  if (decision !== 'confirm') return false;
+
+  const activated = await confirmRiskTask(db, heldTask.id, remoteJid, text);
+  if (!activated) return false;
+
+  if (!activated.deadline) {
+    const suggestions = getDynamicTimeSuggestions(user.timezone, new Date());
+    const suggestionList = suggestions.map((s, idx) => `${['1️⃣', '2️⃣', '3️⃣'][idx]} ${s.label}`).join('\n');
+    const reply = await sock.sendMessage(remoteJid, {
+      text: `👌 Oke, aku percaya kamu! *"${activated.task}"* siap dicatat.\n\nTinggal satu lagi: kapan sebaiknya aku ingatkan? Balas pesan ini dengan waktunya (contoh: *besok jam 2 siang*), atau pilih:\n${suggestionList}`,
+    });
+    if (reply?.key?.id) {
+      await linkTaskMessage(db, activated.id, reply.key.id);
+    }
+    return true;
+  }
+
+  const deadline = new Date(activated.deadline);
+  const sameSchedule = await findSameScheduleTasks(db, remoteJid, deadline, activated.id);
+  if (sameSchedule.length > 0 && activated.remindAt) {
+    const held = await updateTaskDeadline(
+      db,
+      activated.id,
+      deadline,
+      new Date(activated.remindAt),
+      text,
+      'pending_confirmation'
+    );
+    if (held) {
+      await askSameScheduleConfirmation(sock, remoteJid, held, sameSchedule, user.timezone);
+      return true;
+    }
+  }
+
+  const reply = await sock.sendMessage(remoteJid, {
+    text: `✅ *Tugas Dicatat!*\n📝: *${activated.task}*\n⏰ Deadline: *${formatDateTime(deadline, user.timezone)}*\n\nOke, aku percaya kamu! Tetap hati-hati ya 😉${TASK_FOOTER_NOTE}`,
+  });
+  if (reply?.key?.id) {
+    await linkTaskMessage(db, activated.id, reply.key.id);
+  }
+  return true;
+}
+
 type ShortTitleContext = 'task' | 'subtask' | 'rename';
 
 function buildShortTitleText(title: string, context: ShortTitleContext, currentTitle?: string): string {
@@ -131,7 +260,7 @@ const CONFIRMATION_WINDOW_MINUTES = 15;
 const CONFIRM_WORDS = new Set([
   'ya', 'iya', 'iyaa', 'y', 'yes', 'yup', 'yoi', 'gas', 'gass', 'gaskeun', 'lanjut', 'lanjutkan', 'tetap',
   'tetep', 'catat', 'simpan', 'ok', 'oke', 'okee', 'okay', 'sip', 'sipp', 'siap', 'boleh', 'aman', 'santai',
-  'gapapa', 'gpp', '✅', '👍',
+  'gapapa', 'gpp', 'yakin', '✅', '👍',
 ]);
 const REJECT_WORDS = new Set([
   'batal', 'batalin', 'gajadi', 'ga', 'gak', 'nggak', 'ngga', 'enggak', 'tidak', 'jangan', 'no', 'nope',
@@ -380,6 +509,8 @@ function formatHistoryAction(item: any, timezone: string): string {
       return `• [${dateStr}] ❌ Tugas dibatalkan`;
     case 'confirm':
       return `• [${dateStr}] 👌 Dikonfirmasi tetap di jadwal yang sama dengan tugas lain`;
+    case 'confirm_risk':
+      return `• [${dateStr}] 🛡️ Dikonfirmasi aman oleh pengguna setelah peringatan risiko`;
     case 'attachment':
       return `• [${dateStr}] 📎 Lampiran ditambahkan: "${item.newValue || 'file'}"`;
     default:
@@ -527,15 +658,8 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
         return;
       }
 
-      // Layer 4: Multimodal AI screening (scam/phishing & OCR)
+      // Layer 4: Multimodal AI screening (scam/phishing/judol & OCR)
       aiResult = await screenAndExtractImageWithAI(sanitized.buffer, sanitized.mimeType);
-      if (aiResult.isSuspicious) {
-        console.warn('🚨 [Keamanan] Gambar mencurigakan ditolak oleh media screening.');
-        await sock.sendMessage(remoteJid, {
-          text: `🚨 *Peringatan Keamanan!*\nGambar terdeteksi mencurigakan atau berpotensi bahaya/penipuan: _${aiResult.safetyReason || 'Indikasi phishing/scam'}_.\n\nFile ditolak dan tidak disimpan demi keamananmu.`,
-        });
-        return;
-      }
     } else {
       sanitized = sanitizeDocumentBuffer(
         buffer,
@@ -544,14 +668,47 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       );
     }
 
+    let mediaRisk = assessMediaRisk({
+      caption,
+      ocrText: aiResult?.ocrText ?? '',
+      isForwarded,
+      vision: aiResult,
+    });
+
     // Save to S3 (Rust FS) or sandboxed local storage
     const storagePath = await saveAttachmentToStorage(sanitized.buffer, sanitized.extension, sanitized.mimeType);
     const fileName =
       docFileName || (validation.fileType === 'image' ? `foto_${Date.now()}.jpg` : `dokumen_${Date.now()}.pdf`);
 
+    // Risky media is never attached to an active task; it gets its own held task until the user confirms.
+    const holdRiskyMedia = async (title: string, deadline: Date | null, leadMinutes: number) => {
+      const now = new Date();
+      const heldDeadline = deadline && deadline.getTime() > now.getTime() ? deadline : null;
+      const held = await createTask(db, {
+        userJid: remoteJid,
+        task: title,
+        deadline: heldDeadline,
+        remindAt: heldDeadline ? calculateRemindAt(heldDeadline, { leadMinutes, now }) : null,
+        status: 'pending_risk_confirmation',
+      });
+      await addAttachmentToTask(db, {
+        taskId: held.id,
+        userJid: remoteJid,
+        fileName,
+        fileType: validation.fileType!,
+        mimeType: sanitized.mimeType,
+        fileSize: sanitized.fileSize,
+        storagePath,
+        sha256Hash: sanitized.sha256Hash,
+        safetyStatus: 'suspicious',
+        ocrExtractedText: aiResult?.ocrText || null,
+      });
+      await askRiskConfirmation(sock, remoteJid, held, mediaRisk, 'media');
+    };
+
     // Case A: Reply to an existing task
     let attachedTask = null;
-    if (stanzaId) {
+    if (stanzaId && !mediaRisk.flagged) {
       attachedTask = await findTaskByMessageId(db, stanzaId);
     }
 
@@ -592,6 +749,13 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       const effectiveLead = (nlpResult.reminderLeadMinutes && nlpResult.reminderLeadMinutes > 0)
         ? nlpResult.reminderLeadMinutes
         : user.leadReminderMinutes;
+
+      mediaRisk = mergeRisk(mediaRisk, nlpResult.risk);
+      if (mediaRisk.flagged) {
+        await holdRiskyMedia(nlpResult.taskTitle || taskText, deadline, effectiveLead);
+        return;
+      }
+
       const remindAt = deadline ? calculateRemindAt(deadline, { leadMinutes: effectiveLead }) : null;
 
       const created = await createTask(db, {
@@ -649,6 +813,11 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       validation.fileType === 'image'
         ? (aiResult?.ocrText ? `Review foto: ${aiResult.ocrText.slice(0, 40)}` : 'Review lampiran foto')
         : `Review dokumen: ${fileName}`;
+
+    if (mediaRisk.flagged) {
+      await holdRiskyMedia(genericTitle, null, user.leadReminderMinutes);
+      return;
+    }
 
     const created = await createTask(db, {
       userJid: remoteJid,
@@ -1110,18 +1279,22 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     return;
   }
 
-  // 9.5. Reply to a same-schedule confirmation prompt (confirm / cancel / pick another time)
+  // 9.5. Reply to a confirmation prompt (risk alert or same schedule)
   let heldTask: Task | null = null;
   if (stanzaId) {
     const quoted = await findTaskByMessageId(db, stanzaId);
-    if (quoted && quoted.userJid === remoteJid && quoted.status === 'pending_confirmation') {
+    if (quoted && quoted.userJid === remoteJid && HELD_TASK_STATUSES.includes(quoted.status)) {
       heldTask = quoted;
     }
   } else {
     heldTask = await getLatestPendingConfirmationTask(db, remoteJid, CONFIRMATION_WINDOW_MINUTES);
   }
-  if (heldTask && (await handleSameScheduleReply(sock, remoteJid, user, heldTask, trimmedText))) {
-    return;
+  if (heldTask) {
+    const handled =
+      heldTask.status === 'pending_risk_confirmation'
+        ? await handleRiskReply(sock, remoteJid, user, heldTask, trimmedText)
+        : await handleSameScheduleReply(sock, remoteJid, user, heldTask, trimmedText);
+    if (handled) return;
   }
 
   // 10. Quoted reply handlers for Edit (Reschedule & Rename) and Subtasks
@@ -1543,8 +1716,15 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     timezone: user.timezone,
     isForwarded,
   });
+  const risk = mergeRisk(assessTextRisk(trimmedText, { isForwarded }), nlpResult.risk);
 
   if (!nlpResult.isTask) {
+    if (risk.flagged) {
+      console.warn(`🚨 [Risiko] Pesan non-tugas berisiko (${risk.categories.join(',')}), mengirim peringatan.`);
+      await sock.sendMessage(remoteJid, { text: buildRiskAlertText(risk, 'info') });
+      return;
+    }
+
     if (/^(halo|hai|hey|p|ping|assalamualaikum|pagi|siang|sore|malam|tes|test)\b/i.test(trimmedText)) {
       console.log('👋 [Sapaan] Membalas salam ramah.');
       await sock.sendMessage(remoteJid, {
@@ -1583,8 +1763,25 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     return;
   }
 
-  // Check if deadline is specified but already in the past
   const now = new Date();
+  if (risk.flagged) {
+    // A past deadline is dropped so confirming never fires an instant reminder; the bot asks for a time instead.
+    const heldDeadline = nlpResult.deadline && nlpResult.deadline.getTime() > now.getTime() ? nlpResult.deadline : null;
+    const heldLead = (nlpResult.reminderLeadMinutes && nlpResult.reminderLeadMinutes > 0)
+      ? nlpResult.reminderLeadMinutes
+      : user.leadReminderMinutes;
+    const held = await createTask(db, {
+      userJid: remoteJid,
+      task: nlpResult.taskTitle,
+      deadline: heldDeadline,
+      remindAt: heldDeadline ? calculateRemindAt(heldDeadline, { leadMinutes: heldLead, now }) : null,
+      status: 'pending_risk_confirmation',
+    });
+    await askRiskConfirmation(sock, remoteJid, held, risk, 'task');
+    return;
+  }
+
+  // Check if deadline is specified but already in the past
   if (nlpResult.deadline && nlpResult.deadline.getTime() <= now.getTime()) {
     const deadlineStr = formatDateTime(nlpResult.deadline, user.timezone);
     await sock.sendMessage(remoteJid, {

@@ -153,6 +153,8 @@ Lead time pengingat awal default-nya adalah **10 menit** sebelum deadline (dapat
 
 Jika sisa waktu ke deadline kurang dari atau sama dengan lead time pengingat, pengingat akan dikirim tepat pada waktu deadline. Jika lead time diatur ke 30 menit atau lebih dan jarak tugas 30–120 menit tanpa spesifikasi eksplisit, bot adaptif mengirimkan pengingat 15 menit sebelum deadline.
 
+Pesan, pesan terusan, dan lampiran yang mirip **judi online (judol), modus penipuan, link phishing, atau APK berbahaya** tidak langsung dicatat. Bot mengirim peringatan santai beserta alasannya, lalu menahan tugasnya sampai pengguna membalas *lanjut* / *aman* (tetap dicatat) atau *batal*. Deteksinya memakai aturan lokal (tetap jalan walau AI mati) ditambah penilaian AI, yang hanya bisa menambah peringatan dan tidak bisa menghapusnya.
+
 Nama tugas, sub-tugas, dan judul baru (`ubah tugas:`) minimal berisi **3 huruf** (angka, emoji, dan tanda baca tidak dihitung). Jika kurang, bot tidak menyimpannya dan meminta pengguna mengirim ulang dengan nama yang lebih jelas.
 
 Jika tugas baru punya jadwal yang **sama persis (sampai menit)** dengan tugas aktif lain, bot tidak langsung menyimpannya, tapi menanyakan dulu dengan santai karena dua pengingat bakal datang barengan. Balas *gas* / *ya* untuk tetap mencatat, kirim jam lain (cth: *jam 14:30*) untuk menggeser, atau *batal* jika tidak jadi. Pengingat yang jatuh di menit yang sama dikirim berurutan dengan jeda acak 20–30 detik per chat (atur via `REMINDER_PACING_MIN_MS` / `REMINDER_PACING_MAX_MS`) agar tidak terdeteksi sebagai spam oleh WhatsApp.
