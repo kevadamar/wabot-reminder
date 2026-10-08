@@ -36,14 +36,74 @@ describe('LLM config', () => {
     expect(internal.antigravity.configured).toBe(true);
   });
 
+  it.each([
+    'http://172.17.0.1:7860',
+    'http://10.0.0.5:7860',
+    'http://192.168.1.10:7860',
+    'http://100.101.1.2:7860',
+    'http://127.0.0.1:7860',
+    'http://antigravity:7860',
+    'http://bridge.internal:7860',
+    'http://my-server.local:7860',
+    'http://[::1]:7860',
+    'http://[fd00::5]:7860',
+  ])('allows http to the in-server / private host %s without an allowlist', (url) => {
+    const config = loadLlmConfig({ ANTIGRAVITY_BRIDGE_URL: url, ANTIGRAVITY_BRIDGE_TOKEN: 'a'.repeat(32) });
+    expect(config.antigravity.configured).toBe(true);
+  });
+
+  it.each(['http://evil.example/generate', 'http://8.8.8.8:7860', 'http://172.32.0.1:7860', 'http://my-vps.example.com:7860'])(
+    'still requires https for the public host %s and names it in the error',
+    (url) => {
+      const host = new URL(url).hostname;
+      expect(() => loadLlmConfig({ ANTIGRAVITY_BRIDGE_URL: url })).toThrow(new RegExp(`https[\\s\\S]*"${host.replace(/\./g, '\\.')}"`));
+    }
+  );
+
+  it('accepts allowlist entries written as URLs, with ports, quotes or spaces', () => {
+    const config = loadLlmConfig({
+      LLM_INSECURE_HOST_ALLOWLIST: ' "http://my-vps.example.com:7860/" , 203.0.113.5:7860 ',
+      ANTIGRAVITY_BRIDGE_URL: 'http://my-vps.example.com:7860',
+      OPENAI_BASE_URL: 'http://203.0.113.5:7860/v1',
+      ANTIGRAVITY_BRIDGE_TOKEN: 'a'.repeat(32),
+    });
+    expect(config.antigravity.configured).toBe(true);
+  });
+
+  const openai = { OPENAI_API_KEY: 'sk-test', OPENAI_MODEL: 'gpt-test' };
+
   it('rejects a vision chain that includes a provider without vision', () => {
-    expect(() =>
-      loadLlmConfig({
-        LLM_CHAIN_VISION: 'antigravity,local',
-        ANTIGRAVITY_BRIDGE_URL: 'https://bridge.example',
-        ANTIGRAVITY_BRIDGE_TOKEN: 'a'.repeat(32),
-      })
-    ).toThrow(/vision/);
+    expect(() => loadLlmConfig({ LLM_CHAIN_VISION: 'openai,local', ...openai })).toThrow(/vision/);
+  });
+
+  it('drops non-vision providers inherited from LLM_CHAIN_DEFAULT instead of failing', () => {
+    const config = loadLlmConfig({ LLM_CHAIN_DEFAULT: 'gemini,openai,local', GEMINI_API_KEY: 'key', ...openai });
+    expect(config.chains.vision_screen).toEqual(['gemini', 'local']);
+    expect(config.chains.nlp_parse).toEqual(['gemini', 'openai', 'local']);
+    expect(config.warnings.some((warning) => warning.includes('vision_screen') && warning.includes('openai'))).toBe(true);
+  });
+
+  it('falls back to the local vision screen when the inherited chain has no vision provider', () => {
+    const config = loadLlmConfig({ LLM_CHAIN_DEFAULT: 'openai', ...openai });
+    expect(config.chains.vision_screen).toEqual(['local']);
+  });
+
+  it('accepts antigravity in the vision chain and gives vision the full budget', () => {
+    const config = loadLlmConfig({
+      LLM_CHAIN_VISION: 'antigravity,gemini,local',
+      GEMINI_API_KEY: 'key',
+      ANTIGRAVITY_BRIDGE_URL: 'http://host.docker.internal:7860',
+    });
+    expect(config.chains.vision_screen).toEqual(['antigravity', 'gemini', 'local']);
+    expect(config.visionBudgetMs).toBe(config.budgetMs);
+  });
+
+  it('keeps the short vision budget when the vision chain has no antigravity', () => {
+    expect(loadLlmConfig({}).visionBudgetMs).toBe(8000);
+  });
+
+  it('lets LLM_VISION_BUDGET_MS override the vision budget', () => {
+    expect(loadLlmConfig({ LLM_VISION_BUDGET_MS: '15000' }).visionBudgetMs).toBe(15000);
   });
 
   it('does not serialize API keys', () => {

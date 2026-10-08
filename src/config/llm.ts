@@ -40,6 +40,7 @@ export interface LlmConfig {
   chains: Record<Operation, ChainId[]>;
   explicit: Record<Operation, boolean>;
   budgetMs: number;
+  visionBudgetMs: number;
   maxRetries: number;
   maxInputChars: number;
   minAttemptMs: number;
@@ -95,6 +96,43 @@ function parseChain(raw: string, label: string): ChainId[] {
   return parts as ChainId[];
 }
 
+/**
+ * Hosts that never leave the server or its private network: loopback, RFC 1918 / CGNAT
+ * (Tailscale) / link-local IPs, IPv6 ULA, and internal names such as Docker service names.
+ * Plain http to these does not expose prompts or the bridge token to the internet.
+ */
+export function isPrivateHost(rawHost: string): boolean {
+  const host = rawHost.toLowerCase().replace(/^\[|\]$/g, '');
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    return (
+      a === 127 ||
+      a === 10 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  }
+  if (host.includes(':')) {
+    return host === '::1' || /^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host);
+  }
+  if (!host.includes('.')) return true;
+  return /\.(?:local|internal|lan|home\.arpa|localhost)$/.test(host) || host === 'host.docker.internal';
+}
+
+/** Accepts allowlist entries written as bare hosts, host:port, or full URLs (quotes tolerated). */
+function normalizeAllowlistEntry(entry: string): string {
+  const cleaned = entry.trim().replace(/^["']|["']$/g, '').trim().toLowerCase();
+  if (!cleaned) return '';
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(cleaned) ? cleaned : `http://${cleaned}`).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return cleaned;
+  }
+}
+
 export function assertProviderUrl(raw: string, allowHttpHosts: ReadonlySet<string>, label: string): string {
   let url: URL;
   try {
@@ -106,8 +144,10 @@ export function assertProviderUrl(raw: string, allowHttpHosts: ReadonlySet<strin
   if (url.search || url.hash) throw new LlmConfigError(`${label} tidak boleh memuat query atau fragment`);
   const host = url.hostname.toLowerCase();
   if (url.protocol === 'http:') {
-    if (!allowHttpHosts.has(host)) {
-      throw new LlmConfigError(`${label} harus https, kecuali host ada di LLM_INSECURE_HOST_ALLOWLIST`);
+    if (!isPrivateHost(host) && !allowHttpHosts.has(host.replace(/^\[|\]$/g, ''))) {
+      throw new LlmConfigError(
+        `${label} harus https untuk host publik "${host}". Host lokal/jaringan privat boleh http; untuk host publik lain tambahkan "${host}" ke LLM_INSECURE_HOST_ALLOWLIST`
+      );
     }
   } else if (url.protocol !== 'https:') {
     throw new LlmConfigError(`${label} harus https`);
@@ -116,7 +156,7 @@ export function assertProviderUrl(raw: string, allowHttpHosts: ReadonlySet<strin
 }
 
 function supportsVision(id: ChainId, openaiVision: boolean): boolean {
-  if (id === 'local' || id === 'gemini' || id === 'anthropic') return true;
+  if (id === 'local' || id === 'gemini' || id === 'anthropic' || id === 'antigravity') return true;
   if (id === 'openai') return openaiVision;
   return false;
 }
@@ -125,7 +165,7 @@ export function loadLlmConfig(env: Record<string, string | undefined>): LlmConfi
   const allowRaw = env.LLM_INSECURE_HOST_ALLOWLIST?.trim() || 'localhost,127.0.0.1,host.docker.internal';
   const insecureHosts = allowRaw
     .split(',')
-    .map((host) => host.trim().toLowerCase())
+    .map(normalizeAllowlistEntry)
     .filter(Boolean);
   const allowHttp = new Set(insecureHosts);
 
@@ -170,17 +210,21 @@ export function loadLlmConfig(env: Record<string, string | undefined>): LlmConfi
     const fallback = env.LLM_CHAIN_DEFAULT?.trim();
     const source = specific || fallback;
     const label = specific ? OPERATION_ENV[op] : fallback ? 'LLM_CHAIN_DEFAULT' : op;
-    const ids = parseChain(source || BUILTIN_CHAIN[op], label);
+    let ids = parseChain(source || BUILTIN_CHAIN[op], label);
     const isExplicit = Boolean(source);
     explicit[op] = isExplicit;
 
     if (op === 'vision_screen') {
-      for (const id of ids) {
-        if (!supportsVision(id, openaiVision)) {
+      const unsupported = ids.filter((id) => !supportsVision(id, openaiVision));
+      if (unsupported.length > 0) {
+        if (specific) {
           throw new LlmConfigError(
-            `${label}: ${id} tidak mendukung vision. Set LLM_CHAIN_VISION ke provider yang mendukung gambar.`
+            `${label}: ${unsupported.join(', ')} tidak mendukung vision. Hapus dari LLM_CHAIN_VISION (contoh: LLM_CHAIN_VISION=gemini,local).`
           );
         }
+        ids = ids.filter((id) => supportsVision(id, openaiVision));
+        if (ids.length === 0) ids = ['local'];
+        warnings.push(`${op}: ${unsupported.join(', ')} dilewati karena tidak mendukung vision`);
       }
     }
 
@@ -203,10 +247,14 @@ export function loadLlmConfig(env: Record<string, string | undefined>): LlmConfi
     antigravity: bridgeToken,
   };
 
+  const budgetMs = readInt(env, 'LLM_TOTAL_BUDGET_MS', 28_000, 100, 120_000);
+  const slowVision = chains.vision_screen.includes('antigravity');
+
   const view = {
     chains,
     explicit,
-    budgetMs: readInt(env, 'LLM_TOTAL_BUDGET_MS', 28_000, 100, 120_000),
+    budgetMs,
+    visionBudgetMs: readInt(env, 'LLM_VISION_BUDGET_MS', slowVision ? budgetMs : Math.min(budgetMs, 8000), 100, 120_000),
     maxRetries: readInt(env, 'LLM_MAX_RETRIES', 0, 0, 3),
     maxInputChars: readInt(env, 'LLM_MAX_INPUT_CHARS', 2000, 200, 20_000),
     minAttemptMs: 250,

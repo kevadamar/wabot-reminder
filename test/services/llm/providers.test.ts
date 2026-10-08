@@ -134,4 +134,35 @@ describe('Antigravity provider', () => {
     expect(init?.redirect).toBe('error');
     expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer bridge-token-value');
   });
+
+  it('supports vision by sending images as base64 to the bridge', async () => {
+    let body: { prompt?: string; images?: { mimeType: string; data: string }[] } = {};
+    const fetchImpl = async (_url: string, options?: RequestInit) => {
+      body = JSON.parse(String(options?.body));
+      return Response.json({ text: '{"isSuspicious":false}' });
+    };
+    const provider = createAntigravityProvider({ url: 'http://host.docker.internal:7860', token: '', timeoutMs: 1000, fetchImpl });
+    expect(provider.capabilities.vision).toBe(true);
+    await provider.generate({
+      operation: 'vision_screen',
+      system: 'analisis gambar',
+      userContent: 'Gambar terlampir.',
+      images: [{ data: new Uint8Array([0xff, 0xd8, 0xff, 0x01]), mimeType: 'image/jpeg' }],
+      maxOutputTokens: 100,
+      signal,
+    });
+    expect(body.images).toEqual([{ mimeType: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0x01]).toString('base64') }]);
+    expect(body.prompt).toContain('analisis gambar');
+  });
+
+  it('omits the images field for text-only requests', async () => {
+    let body: Record<string, unknown> = {};
+    const fetchImpl = async (_url: string, options?: RequestInit) => {
+      body = JSON.parse(String(options?.body));
+      return Response.json({ text: 'ok' });
+    };
+    const provider = createAntigravityProvider({ url: 'http://host.docker.internal:7860', token: '', timeoutMs: 1000, fetchImpl });
+    await provider.generate({ operation: 'affirmation', system: 's', userContent: 'u', maxOutputTokens: 10, signal });
+    expect('images' in body).toBe(false);
+  });
 });

@@ -47,7 +47,7 @@ export function productionDeps(operation: Operation, providers: LlmProvider[]): 
   return {
     providers,
     breaker: getSharedBreaker(config.breaker),
-    budgetMs: operation === 'vision_screen' ? Math.min(config.budgetMs, 8000) : config.budgetMs,
+    budgetMs: operation === 'vision_screen' ? config.visionBudgetMs : config.budgetMs,
     maxRetries: config.maxRetries,
     minAttemptMs: config.minAttemptMs,
     now: Date.now,

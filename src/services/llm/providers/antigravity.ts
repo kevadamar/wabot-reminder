@@ -13,10 +13,13 @@ export function createAntigravityProvider(options: {
     id: 'antigravity',
     model: 'antigravity-cli',
     timeoutMs: options.timeoutMs,
-    capabilities: { structuredOutput: false, vision: false },
+    capabilities: { structuredOutput: false, vision: true },
     async generate(req: LlmRequest): Promise<LlmResult> {
-      if (req.images?.length) throw new LlmError('bad_request');
       const prompt = req.system ? `${req.system}\n\n${req.userContent}` : req.userContent;
+      const images = req.images?.map((image) => ({
+        mimeType: image.mimeType,
+        data: Buffer.from(image.data).toString('base64'),
+      }));
       let response: Response;
       try {
         response = await fetchImpl(endpoint, {
@@ -25,7 +28,7 @@ export function createAntigravityProvider(options: {
             'Content-Type': 'application/json',
             ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
           },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify(images?.length ? { prompt, images } : { prompt }),
           signal: req.signal,
           redirect: 'error',
         });
