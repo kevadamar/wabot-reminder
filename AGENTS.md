@@ -25,7 +25,7 @@ Instructions, architecture pointers, and coding conventions for AI agents workin
 
 ## 3. Critical Developer Commands
 
-Always use `rtk` prefix when running shell commands (per system rules).
+If the `rtk` CLI is installed (maintainer setup), prefix shell commands with `rtk`; otherwise run them as-is.
 
 ```bash
 # Typecheck (Run regularly across all edits)

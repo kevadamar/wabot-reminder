@@ -1,5 +1,30 @@
 {
   "name": "todo-reminder-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp to-do & reminder bot in Bahasa Indonesia: natural-language tasks, adaptive reminders, scam/judol alerts, and a configurable LLM provider chain.",
+  "license": "MIT",
+  "author": "kevadamar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kevadamar/wabot-reminder.git"
+  },
+  "homepage": "https://github.com/kevadamar/wabot-reminder#readme",
+  "bugs": {
+    "url": "https://github.com/kevadamar/wabot-reminder/issues"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "reminder",
+    "todo",
+    "baileys",
+    "bun",
+    "gemini",
+    "indonesia"
+  ],
+  "engines": {
+    "bun": ">=1.2"
+  },
   "module": "src/index.ts",
   "type": "module",
   "private": true,

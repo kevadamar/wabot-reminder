@@ -1,6 +1,16 @@
 # WhatsApp Task & Reminder Bot
 
-Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat to-do list dari pesan langsung maupun pesan yang diteruskan (*forwarded*), mengekstrak deadline menggunakan **Gemini AI** (dengan fallback lokal), memberikan pengingat adaptif otomatis, dan merayakan penyelesaian tugas dengan afirmasi positif dinamis.
+[![CI](https://github.com/kevadamar/wabot-reminder/actions/workflows/ci.yml/badge.svg)](https://github.com/kevadamar/wabot-reminder/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/runtime-Bun%201.2%2B-black?logo=bun)](https://bun.sh/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat to-do list dari pesan langsung maupun pesan yang diteruskan (*forwarded*), mengekstrak deadline menggunakan AI (Gemini, OpenAI-compatible, Anthropic, atau Antigravity CLI, dengan fallback lokal), memberikan pengingat adaptif otomatis, memperingatkan pesan judol/scam/phishing, dan merayakan penyelesaian tugas dengan afirmasi positif dinamis.
+
+Proyek ini **open source dan gratis** di bawah [Lisensi MIT](LICENSE): bebas dipakai, dimodifikasi, dan didistribusikan, termasuk untuk keperluan komersial.
+
+> [!WARNING]
+> Bot ini memakai [Baileys](https://github.com/WhiskeySockets/Baileys), klien WhatsApp Web **tidak resmi**. Proyek ini tidak berafiliasi dengan, didukung, atau disponsori oleh WhatsApp maupun Meta. Pemakaian klien tidak resmi dapat melanggar Ketentuan Layanan WhatsApp dan berisiko membuat nomor diblokir. Gunakan nomor khusus bot, untuk keperluan pribadi, dan jangan dipakai untuk spam atau pesan massal.
 
 ---
 
@@ -13,7 +23,7 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
   - Dukungan melampirkan foto (JPG, PNG, WebP) atau dokumen (PDF).
   - **Layer 1 (Magic Bytes Inspection):** Memverifikasi signature biner file via `file-type`, menolak format berbahaya seperti SVG/XML (vektor XSS) dan executable.
   - **Layer 2 (Content Disarming & Reconstruction - CDR):** Sanitasi gambar via `sharp` yang menghapus metadata sensitif EXIF/GPS dan menormalkan pixel.
-  - **Layer 3 (Multimodal AI Screening & OCR):** Analisis cerdas Gemini Vision untuk mendeteksi potensi scam/phishing/manipulasi bukti transfer serta ekstraksi teks otomatis (OCR).
+  - **Layer 3 (Multimodal AI Screening & OCR):** Analisis gambar oleh AI vision (Gemini secara default; bisa juga Antigravity CLI, Anthropic, atau OpenAI lewat `LLM_CHAIN_VISION`) untuk mendeteksi judi online, scam, phishing, dan manipulasi bukti transfer, sekaligus ekstraksi teks otomatis (OCR).
   - **Layer 4 (S3 Rust FS & Sandboxed Storage):** Terintegrasi langsung dengan S3-compatible Object Storage (Rust FS / MinIO) antar-container Docker maupun storage lokal terisolasi berizin `0o600`.
   - **Direct Media Reminder:** Ketika jadwal pengingat tugas berbunyi di WhatsApp, bot langsung mengirimkan foto/PDF secara otomatis dengan teks pengingat sebagai caption!
 - 🌿 **Hierarchical / Nested Tasks (Tugas Induk & Sub-tugas)**:
@@ -59,6 +69,9 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
 - 📐 **Architecture Decision Records (ADR)**:
   - [ADR 0001: Penggunaan PostgreSQL menggantikan SQLite](docs/adr/0001-postgresql-for-task-storage.md)
   - [ADR 0002: Penyimpanan Konfigurasi Dinamis di Database](docs/adr/0002-database-backed-settings.md)
+  - [ADR 0003: Rantai Provider LLM yang Dapat Dikonfigurasi](docs/adr/0003-configurable-llm-provider-chain.md)
+- 🔬 **Catatan Riset**: [rantai provider LLM](docs/research/configurable-llm-provider-chain.md), [keamanan lampiran & sub-tugas](docs/research/attachments-security-and-subtasks-design.md), [ringkasan pagi](docs/research/daily-morning-task-digest.md), [dashboard monitoring](docs/research/lightweight-monitoring-dashboard.md), [SLM vs LLM untuk parsing](docs/research/slm-vs-llm-task-parsing.md).
+- 🤝 **Komunitas**: [Panduan Kontribusi](CONTRIBUTING.md) · [Kode Etik](CODE_OF_CONDUCT.md) · [Kebijakan Keamanan](SECURITY.md)
 
 ---
 
@@ -66,7 +79,15 @@ Bot WhatsApp pintar berbasis **Bun** dan **Baileys (v7)** yang membantu mencatat
 
 ### 1. Prasyarat
 - [Bun](https://bun.sh/) (v1.2+)
-- PostgreSQL yang sedang berjalan (misal Docker container `postgres_16`)
+- PostgreSQL 16 yang sedang berjalan (misal Docker container `postgres:16-alpine`)
+- Nomor WhatsApp khusus untuk bot (disarankan bukan nomor utama Anda)
+
+Clone repo dan pasang dependency:
+```bash
+git clone https://github.com/kevadamar/wabot-reminder.git
+cd wabot-reminder
+bun install
+```
 
 ### 2. Konfigurasi Lingkungan (`.env`)
 Salin file `.env.example` ke `.env`:
@@ -97,6 +118,25 @@ DASHBOARD_PORT=3080
 DASHBOARD_USERNAME=admin
 DASHBOARD_PASSWORD=use-a-random-password-at-least-16-chars
 ```
+
+Daftar lengkap variabel ada di [`.env.example`](.env.example). Tanpa `GEMINI_API_KEY` pun bot tetap jalan memakai parser lokal (regex + `chrono-node`), hanya kurang pintar memahami kalimat bebas.
+
+#### Rantai Provider AI (opsional)
+
+Urutan provider AI diatur per operasi, dibaca dari kiri ke kanan. Jika provider pertama gagal, timeout, atau sedang di-*circuit break*, bot mencoba provider berikutnya, dan `local` selalu menjadi cadangan terakhir.
+
+| Variabel | Operasi | Default |
+| :--- | :--- | :--- |
+| `LLM_CHAIN_NLP` | Memahami pesan tugas | `gemini,antigravity,local` |
+| `LLM_CHAIN_AFFIRMATION` | Pujian saat tugas selesai | `gemini,antigravity,local` |
+| `LLM_CHAIN_REMINDER` | Teks pengingat | `gemini,antigravity,local` |
+| `LLM_CHAIN_MORNING` | Pantun ringkasan pagi | `gemini,local` |
+| `LLM_CHAIN_VISION` | Screening & OCR gambar | `gemini,local` |
+| `LLM_CHAIN_DEFAULT` | Dipakai operasi yang tidak diatur khusus | — |
+
+ID yang valid: `gemini`, `openai` (termasuk endpoint OpenAI-compatible seperti OpenRouter, Groq, atau Ollama lewat `OPENAI_BASE_URL`), `anthropic`, `antigravity`, dan `local`. Provider yang belum dikonfigurasi dilewati dengan warning; jika ditulis eksplisit di `LLM_CHAIN_*` tetapi kredensialnya kosong, bot menolak start supaya salah konfigurasi langsung ketahuan. Log startup mencetak rantai efektif per operasi.
+
+URL provider ke host publik wajib `https`. `http` otomatis diizinkan untuk host lokal/jaringan privat (misalnya `localhost`, `host.docker.internal`, `10.x`, `172.16–31.x`, `192.168.x`, nama service Docker); host publik lain bisa ditambahkan ke `LLM_INSECURE_HOST_ALLOWLIST`.
 
 ### 3. Migrasi Database
 Terapkan skema tabel ke PostgreSQL:
@@ -187,12 +227,17 @@ Pengguna dapat langsung mengutip (quote/reply) balon pesan bot untuk melakukan p
 
 Proyek ini dibangun mengikuti prinsip TDD pada 5 seam publik:
 ```bash
+# Terapkan skema ke database test (sekali saja / setiap skema berubah)
+bun run db:push
+
 # Jalankan seluruh test suite
 bun test
 
 # Pengecekan tipe TypeScript
 bun run typecheck
 ```
+
+Test membutuhkan PostgreSQL dari `DATABASE_URL` dan akan menulis serta menghapus data, jadi gunakan database khusus pengembangan. API key AI tidak diperlukan: tanpa key, test memakai parser lokal. CI GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) menjalankan typecheck dan seluruh test terhadap PostgreSQL 16 di setiap push dan pull request.
 
 ---
 
@@ -298,7 +343,7 @@ Bot dilengkapi dengan web dashboard internal (`src/dashboard/`) yang aman, ringa
 
 ## ⚡ Setup Antigravity CLI Host Bridge (Opsional)
 
-Jika Anda sudah menginstal **Antigravity CLI** (`agy`) di VPS/Host server (di luar Docker container) dan ingin menggunakannya sebagai fallback cerdas saat API Gemini terkena kuota/limit:
+Jika Anda sudah menginstal **Antigravity CLI** (`agy`) di VPS/Host server (di luar Docker container), bot bisa memakainya sebagai provider AI untuk teks **dan gambar**, baik sebagai fallback saat API Gemini terkena kuota/limit maupun sebagai provider utama:
 
 1. **Jalankan Bridge Script di Host OS**:
    ```bash
@@ -322,4 +367,30 @@ Jika Anda sudah menginstal **Antigravity CLI** (`agy`) di VPS/Host server (di lu
    ANTIGRAVITY_BRIDGE_URL=http://host.docker.internal:7860
    ANTIGRAVITY_BRIDGE_TOKEN=token-yang-sama
    ```
-   Container memanggil bridge ini ketika provider sebelumnya di rantai gagal.
+   `http` ke `host.docker.internal` (atau IP privat lain di server yang sama) diizinkan tanpa konfigurasi tambahan. Posisi `antigravity` di `LLM_CHAIN_*` menentukan kapan bridge dipanggil: di depan berarti dipakai lebih dulu, di belakang berarti hanya sebagai cadangan.
+
+4. **(Opsional) Screening gambar lewat Antigravity**:
+   Bridge meneruskan gambar ke `agy` lewat folder sementara privat yang langsung dihapus setelah dipakai (maks 4 gambar, 5 MB per gambar, JPEG/PNG/WebP/GIF). CLI butuh sekitar 13–30 detik per gambar, jadi naikkan timeout-nya:
+   ```env
+   LLM_CHAIN_VISION=antigravity,gemini,local
+   ANTIGRAVITY_TIMEOUT_MS=40000   # set di env bot DAN env proses bridge
+   LLM_VISION_BUDGET_MS=50000     # sisakan waktu untuk Gemini jika Antigravity gagal
+   ```
+
+> Setelah memperbarui kode, restart **proses bridge di host** dan container bot (`docker compose up -d --build`; `restart` saja tidak membaca ulang `.env`).
+
+---
+
+## 🤝 Kontribusi
+
+Kontribusi sangat diterima, mulai dari laporan bug, ide fitur, perbaikan dokumentasi, sampai pull request. Baca [CONTRIBUTING.md](CONTRIBUTING.md) untuk setup lokal, alur TDD, dan konvensi kode, serta [Kode Etik](CODE_OF_CONDUCT.md) komunitas.
+
+## 🔒 Keamanan
+
+Temukan celah keamanan? Mohon **jangan** buka issue publik. Laporkan secara privat sesuai [SECURITY.md](SECURITY.md).
+
+## 📄 Lisensi
+
+Dirilis di bawah [Lisensi MIT](LICENSE). © 2026 kevadamar dan kontributor.
+
+Dependency pihak ketiga memakai lisensi masing-masing (MIT, Apache-2.0, dan Unlicense untuk dependency langsung). "WhatsApp" adalah merek dagang milik Meta Platforms, Inc.; proyek ini tidak terafiliasi dengan Meta.

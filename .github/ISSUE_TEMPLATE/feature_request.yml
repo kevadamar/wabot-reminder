@@ -1,0 +1,28 @@
+name: ✨ Usulan Fitur
+description: Usulkan fitur atau peningkatan baru
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Masalah apa yang ingin diselesaikan?
+      description: Ceritakan kebutuhan atau kendala yang Anda alami.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solusi yang diusulkan
+      description: Bagaimana bot sebaiknya berperilaku? Contoh pesan WhatsApp sangat membantu.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatif yang sudah dipertimbangkan
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Kontribusi
+      options:
+        - label: Saya bersedia membantu mengerjakan fitur ini

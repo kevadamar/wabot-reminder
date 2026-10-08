@@ -29,7 +29,7 @@ flowchart TD
     end
     
     subgraph External["External Cloud & Storage"]
-        Gemini["Google Gemini 1.5 Flash<br/>(AI Studio API)"]
+        Gemini["Cloud LLM (default: Gemini via AI Studio)<br/>or OpenAI-compatible / Anthropic"]
         Postgres[("PostgreSQL 16 Database<br/>todo_bot")]
         AuthStore[("Local Auth Directory<br/>./auth_info")]
     end
@@ -55,6 +55,8 @@ flowchart TD
     ReminderWorker -->|Dispatch alerts| Baileys
 ```
 
+Tier order is the default; each operation's order comes from `LLM_CHAIN_*` (see [ADR 0003](adr/0003-configurable-llm-provider-chain.md)). Image screening (`src/services/media.ts`) uses the same chain with `LLM_CHAIN_VISION`; the Antigravity bridge also accepts images.
+
 ---
 
 ## 2. Core Components & Responsibilities
@@ -71,7 +73,7 @@ flowchart TD
 | **Media Service** | `src/services/media.ts` | Multi-layer media validation (magic bytes), CDR sanitization via Sharp (configurable 4K high vs 2K compact), S3/local storage, and AI screening. |
 | **Telemetry Service** | `src/services/telemetry.ts` | Records hourly aggregated runtime metrics, sanitizes and logs error events, and feeds dashboard telemetry. |
 | **Monitoring Dashboard** | `src/dashboard/server.ts` | Lightweight HTTP Basic Auth web dashboard (port 3080) for real-time monitoring of bot status, socket, memory, tasks, and telemetry. |
-| **Affirmation Service** | `src/services/affirmation.ts` | Produces positive congratulatory feedback tailored to the completed task using Gemini 1.5 Flash or local curated Indonesian affirmations. |
+| **Affirmation Service** | `src/services/affirmation.ts` | Produces positive congratulatory feedback tailored to the completed task using the configured LLM chain or local curated Indonesian affirmations. |
 | **Database Pool** | `src/db/index.ts` & `src/db/schema.ts` | Configures `postgres.js` connection pool and declares type-safe Drizzle ORM schemas. |
 
 ---
@@ -266,7 +268,7 @@ erDiagram
         text storage_path "Sandboxed path on disk"
         varchar sha256_hash "SHA-256 binary checksum"
         varchar safety_status "safe | suspicious | rejected"
-        text ocr_extracted_text "Text extracted via Gemini Vision OCR"
+        text ocr_extracted_text "Text extracted via AI vision OCR"
         timestamptz created_at "Timestamp"
     }
 

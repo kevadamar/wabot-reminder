@@ -1,0 +1,52 @@
+name: 🐛 Laporan Bug
+description: Laporkan perilaku bot yang tidak sesuai harapan
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Terima kasih sudah melapor! **Jangan sertakan API key, token, nomor telepon asli, atau isi `.env`.**
+        Untuk celah keamanan, gunakan [private vulnerability reporting](https://github.com/kevadamar/wabot-reminder/security/advisories/new).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Apa yang terjadi?
+      description: Jelaskan bug-nya dan apa yang Anda harapkan terjadi.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Langkah reproduksi
+      placeholder: |
+        1. Kirim pesan "besok jam 2 meeting"
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log / pesan error
+      description: Tempel log yang relevan (sensor data pribadi).
+      render: text
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Cara menjalankan
+      options:
+        - bun run start (lokal)
+        - Docker / docker compose
+        - Dokploy
+        - Lainnya
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versi / commit
+      placeholder: "contoh: main @ 003d09e, Bun 1.4.2"
+  - type: input
+    id: llm-chain
+    attributes:
+      label: Rantai LLM yang dipakai
+      description: Salin baris "Rantai LLM efektif" dari log startup jika relevan.

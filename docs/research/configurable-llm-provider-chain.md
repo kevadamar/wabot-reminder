@@ -263,7 +263,7 @@ Semua poin di bagian ini merupakan rekomendasi berdasarkan sumber di atas.
 
 **URL yang dapat dikonfigurasi (SSRF)** ([OWASP SSRF Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)):
 
-- [ ] Wajibkan `https:` dengan allowlist eksplisit untuk host internal yang memakai `http:`.
+- [x] Wajibkan `https:` untuk host publik. `http:` hanya untuk host lokal/jaringan privat (otomatis) atau host di `LLM_INSECURE_HOST_ALLOWLIST`.
 - [ ] Gunakan `redirect: 'error'` pada `fetch` adapter. OWASP menyarankan redirect dimatikan agar validasi URL tidak dapat dilewati.
 - [ ] URL hanya berasal dari env operator, tidak pernah dari pesan pengguna atau output model.
 
@@ -354,7 +354,7 @@ Di [nlp.test.ts](../../test/services/nlp.test.ts):
 - test lama dengan `geminiClient` tetap hijau.
 
 **Fase 2: operasi lain.**
-Migrasikan [affirmation.ts](../../src/services/affirmation.ts), [reminder.ts](../../src/services/reminder.ts), [morning-digest.ts](../../src/services/morning-digest.ts), dan [media.ts](../../src/services/media.ts) dengan capability `vision`. Test yang sudah ada menjadi regression net. Tambahkan test bahwa `LLM_CHAIN_VISION` berisi `antigravity` ditolak saat startup.
+Migrasikan [affirmation.ts](../../src/services/affirmation.ts), [reminder.ts](../../src/services/reminder.ts), [morning-digest.ts](../../src/services/morning-digest.ts), dan [media.ts](../../src/services/media.ts) dengan capability `vision`. Test yang sudah ada menjadi regression net. Tambahkan test bahwa `LLM_CHAIN_VISION` berisi provider tanpa vision ditolak saat startup. (Pembaruan: bridge Antigravity kini mendukung gambar, lihat aturan nomor 6 di atas.)
 
 **Fase 3: provider baru.**
 Tambahkan `providers/openai-compatible.ts` dan, jika dibutuhkan, `providers/anthropic.ts` berbasis `fetch`. Tulis test kontrak dengan `fetch` palsu:

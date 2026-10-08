@@ -4,6 +4,8 @@
 **Runtime:** Bun Runtime  
 **Status:** Approved & Ready for Implementation  
 
+> **Note:** This is the original product spec and is kept for history. Some details have since changed (for example, the AI layer is now a configurable provider chain instead of Gemini 1.5 Flash only). For current behavior, see the [README](../README.md), [ARCHITECTURE.md](ARCHITECTURE.md), and the [ADRs](adr/).
+
 ## 1. Overview
 A lightweight WhatsApp bot designed to help users capture and manage their tasks effortlessly. Users can chat directly or forward messages to the bot to create tasks. The bot uses Gemini AI (with a local NLP fallback) to extract tasks and deadlines in natural Indonesian, calculates adaptive reminder alerts, alerts users before due dates, and celebrates task completion (marked via ✅ emoji reaction, reply, or command) with dynamic, positive affirmations.
 
