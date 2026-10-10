@@ -5,7 +5,8 @@ export type Operation =
   | 'affirmation'
   | 'reminder_message'
   | 'morning_motivation'
-  | 'vision_screen';
+  | 'vision_screen'
+  | 'link_review';
 
 export type ErrorKind =
   | 'timeout'

@@ -90,6 +90,37 @@ export function parseNlpModelOutput(text: string, now: Date): NlpModelOutput {
   };
 }
 
+export const LINK_REVIEW_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    category: { type: 'string', enum: [...RISK_CATEGORY_VALUES] },
+    reason: { type: 'string' },
+    summary: { type: 'string' },
+  },
+  required: ['category', 'summary'],
+} as const;
+
+export interface LinkReviewModelOutput {
+  verdict: LlmRiskVerdict;
+  summary: string | null;
+}
+
+export function parseLinkReviewOutput(text: string): LinkReviewModelOutput {
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(extractJsonObject(text)) as Record<string, unknown>;
+  } catch (err) {
+    if (err instanceof LlmError) throw err;
+    throw new LlmError('invalid_output');
+  }
+  if (!parseRiskCategory(data.category)) throw new LlmError('invalid_output');
+  const summary =
+    typeof data.summary === 'string'
+      ? data.summary.replace(/\b(?:https?:\/\/|www\.)\S+/gi, '').replace(/[*_~`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)
+      : '';
+  return { verdict: parseRiskVerdict(data), summary: summary || null };
+}
+
 export const VISION_JSON_SCHEMA = {
   type: 'object',
   properties: {

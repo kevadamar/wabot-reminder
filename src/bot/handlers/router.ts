@@ -26,14 +26,17 @@ import {
   MIN_TASK_TITLE_LETTERS,
   HELD_TASK_STATUSES,
   confirmRiskTask,
+  holdTaskForRisk,
 } from '../../services/task.js';
 import {
   assessMediaRisk,
   assessTextRisk,
   mergeRisk,
+  RISK_CATEGORIES,
   type RiskAssessment,
   type RiskCategory,
 } from '../../services/risk.js';
+import { runLinkFollowUp, type LinkReview } from '../../services/link-review.js';
 import {
   parseTaskMessage,
   parseLocalTask,
@@ -130,21 +133,31 @@ const RISK_TIPS: Record<RiskCategory, string> = {
   gambling: '🎰 Judi online didesain bikin kalah dan sering jadi pintu ke pinjol & penipuan. Mending jauhi dulu ya 🙏',
 };
 
-type RiskAlertMode = 'task' | 'media' | 'info';
+/** `notice`: the alert concerns a task that is no longer active, so there is nothing to confirm. */
+type RiskAlertMode = 'task' | 'media' | 'info' | 'notice';
 
-function buildRiskAlertText(risk: RiskAssessment, mode: RiskAlertMode, title?: string): string {
+function buildRiskAlertText(
+  risk: RiskAssessment,
+  mode: RiskAlertMode,
+  title?: string,
+  options: { subject?: string; intro?: string } = {}
+): string {
   const labels = risk.categories.map((c) => RISK_LABELS[c]).join(' & ');
   const reasons = risk.reasons.slice(0, 3).map((r) => `• ${r}`).join('\n');
   const tip = risk.categories[0] ? RISK_TIPS[risk.categories[0]] : '';
-  const subject = mode === 'media' ? 'Lampiran ini' : 'Pesan ini';
+  const subject = options.subject ?? (mode === 'media' ? 'Lampiran ini' : 'Pesan ini');
   const titleLine = title ? `\n📝 *"${title.replace(/\s+/g, ' ').trim().slice(0, 80)}"*\n` : '';
+  const intro = options.intro ? `${options.intro}\n\n` : '';
 
   const header =
-    `🚨 *Eits, tahan dulu ya!* ${subject} punya ciri-ciri *${labels}* 🧐${titleLine}\n` +
+    `${intro}🚨 *Eits, tahan dulu ya!* ${subject} punya ciri-ciri *${labels}* 🧐${titleLine}\n` +
     `Yang bikin aku curiga:\n${reasons}\n\n${tip}`;
 
   if (mode === 'info') {
     return `${header}\n\nAku nggak mencatat apa-apa dari pesan ini. Kalau memang ada tugas yang mau dicatat, tulis ulang pakai bahasamu sendiri ya ✨`;
+  }
+  if (mode === 'notice') {
+    return `${header}\n\nTugasnya sudah nggak aktif, jadi aku cuma mau ngingetin: hati-hati kalau mau membuka link itu ya 🙏`;
   }
 
   const holdNote = mode === 'media' ? 'Lampirannya aku simpan sementara, tapi tugasnya' : 'Tugasnya';
@@ -168,6 +181,59 @@ async function askRiskConfirmation(
   const reply = await sock.sendMessage(remoteJid, { text: buildRiskAlertText(risk, mode, heldTask.task) });
   if (reply?.key?.id) {
     await linkTaskMessage(db, heldTask.id, reply.key.id);
+  }
+}
+
+const LINK_CHECK_INTRO = '🔎 *Hasil cek link*: aku sudah membuka halamannya di browser terpisah buat dicek.';
+
+function describeLink(review: LinkReview): string {
+  return review.finalHost && review.finalHost !== review.host ? `${review.host} → ${review.finalHost}` : review.host;
+}
+
+function buildLinkCheckNote(reviews: LinkReview[]): string {
+  const lines = reviews.map((review) => {
+    if (review.status === 'unreachable') {
+      return `⚠️ *${review.host}*: nggak bisa aku buka buat dicek (situsnya nggak merespons atau nggak ditemukan). Hati-hati kalau mau membukanya ya.`;
+    }
+    const about = review.summary ?? (review.title ? `"${review.title}"` : null);
+    return `✅ *${describeLink(review)}*: nggak ada tanda bahaya${about ? `, isinya: ${about}` : ''}.`;
+  });
+  const footer = reviews.some((review) => review.status === 'safe')
+    ? '\n\n_Tetap jangan isi OTP / PIN / password di situs yang nggak kamu kenal ya._'
+    : '';
+  return `🔎 *Hasil cek link*\n${lines.join('\n')}${footer}`;
+}
+
+async function handleLinkReviews(sock: any, remoteJid: string, taskId: number | null, reviews: LinkReview[]): Promise<void> {
+  const dangerous = reviews.filter((review) => review.status === 'dangerous');
+  if (dangerous.length === 0) {
+    const reply = await sock.sendMessage(remoteJid, { text: buildLinkCheckNote(reviews) });
+    if (taskId && reply?.key?.id) await linkTaskMessage(db, taskId, reply.key.id);
+    return;
+  }
+
+  const risk: RiskAssessment = {
+    flagged: true,
+    categories: RISK_CATEGORIES.filter((c) => dangerous.some((review) => review.risk.categories.includes(c))),
+    reasons: [...new Set(dangerous.flatMap((review) => review.risk.reasons))],
+  };
+  const options = { subject: `Link *${dangerous.map(describeLink).join(', ')}*`, intro: LINK_CHECK_INTRO };
+  const held = taskId ? await holdTaskForRisk(db, taskId, remoteJid, 'link_review') : null;
+  if (held) {
+    console.warn(`🚨 [Risiko] Tugas #${held.id} ditahan setelah cek link (${risk.categories.join(',')}).`);
+    const reply = await sock.sendMessage(remoteJid, { text: buildRiskAlertText(risk, 'task', held.task, options) });
+    if (reply?.key?.id) await linkTaskMessage(db, held.id, reply.key.id);
+    return;
+  }
+  await sock.sendMessage(remoteJid, { text: buildRiskAlertText(risk, taskId ? 'notice' : 'info', undefined, options) });
+}
+
+/** Checks links in the background after the normal reply; the result arrives as a separate message. */
+function scheduleLinkFollowUp(sock: any, remoteJid: string, text: string, taskId: number | null): void {
+  try {
+    runLinkFollowUp(text, (reviews) => handleLinkReviews(sock, remoteJid, taskId, reviews));
+  } catch (err) {
+    console.error('⚠️ [LinkCheck] Gagal memulai cek link:', err);
   }
 }
 
@@ -1730,6 +1796,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       await sock.sendMessage(remoteJid, {
         text: `Halo! 👋 Aku asisten pengingat tugasmu.\n\nAda tugas yang ingin dicatat hari ini? Kamu bisa ketik langsung (contoh: _"Besok jam 2 siang rapat tim"_), atau ketik *help* untuk melihat panduan ya! ✨`,
       });
+      scheduleLinkFollowUp(sock, remoteJid, trimmedText, null);
       return;
     }
 
@@ -1738,6 +1805,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
       await sock.sendMessage(remoteJid, {
         text: `Sip brad/kak! 😉 Kalau ada to-do list atau tugas baru yang mau dicatat atau diingatkan, langsung kirim aja ke sini ya! ✨`,
       });
+      scheduleLinkFollowUp(sock, remoteJid, trimmedText, null);
       return;
     }
 
@@ -1755,6 +1823,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     await sock.sendMessage(remoteJid, {
       text: `Hehe santai dulu brad/kak! 😄 Belum nangkep ada tugas atau deadline dari pesan kamu tadi nih.\n\nAku asisten pengingat tugas & to-do list. Mau catat tugas baru (contoh: _"nanti jam 4 sore jemput adik"_), cek daftar tugas (*list*), atau butuh bantuan (*help*)? Langsung kasih tahu aku ya! ✨`,
     });
+    scheduleLinkFollowUp(sock, remoteJid, trimmedText, null);
     return;
   }
 
@@ -1811,6 +1880,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
     if (reply?.key?.id) {
       await linkTaskMessage(db, created.id, reply.key.id);
     }
+    scheduleLinkFollowUp(sock, remoteJid, trimmedText, created.id);
     return;
   }
 
@@ -1835,6 +1905,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
 
   if (sameSchedule.length > 0) {
     await askSameScheduleConfirmation(sock, remoteJid, created, sameSchedule, user.timezone);
+    scheduleLinkFollowUp(sock, remoteJid, trimmedText, created.id);
     return;
   }
 
@@ -1872,6 +1943,7 @@ export async function handleIncomingMessage(sock: any, msg: any): Promise<void> 
   if (reply?.key?.id) {
     await linkTaskMessage(db, created.id, reply.key.id);
   }
+  scheduleLinkFollowUp(sock, remoteJid, trimmedText, created.id);
 }
 
 /**

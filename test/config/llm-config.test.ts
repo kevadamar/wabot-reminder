@@ -88,6 +88,21 @@ describe('LLM config', () => {
     expect(config.chains.vision_screen).toEqual(['local']);
   });
 
+  it('has a link review chain that defaults to vision-capable providers and its own budget', () => {
+    const config = loadLlmConfig({});
+    expect(config.chains.link_review).toEqual(['gemini', 'antigravity', 'local']);
+    expect(config.linkBudgetMs).toBe(60_000);
+    expect(loadLlmConfig({ LLM_LINK_BUDGET_MS: '90000' }).linkBudgetMs).toBe(90_000);
+  });
+
+  it('treats LLM_CHAIN_LINK like a vision chain because it sends a page screenshot', () => {
+    expect(() => loadLlmConfig({ LLM_CHAIN_LINK: 'openai,local', ...openai })).toThrow(/LLM_CHAIN_LINK[\s\S]*vision/);
+    const vision = loadLlmConfig({ LLM_CHAIN_LINK: 'openai,local', OPENAI_VISION: 'true', ...openai });
+    expect(vision.chains.link_review).toEqual(['openai', 'local']);
+    const inherited = loadLlmConfig({ LLM_CHAIN_DEFAULT: 'gemini,openai,local', GEMINI_API_KEY: 'key', ...openai });
+    expect(inherited.chains.link_review).toEqual(['gemini', 'local']);
+  });
+
   it('accepts antigravity in the vision chain and gives vision the full budget', () => {
     const config = loadLlmConfig({
       LLM_CHAIN_VISION: 'antigravity,gemini,local',

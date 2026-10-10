@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { assessMediaRisk, assessTextRisk, mergeRisk } from '../../src/services/risk.js';
+import {
+  assessMediaRisk,
+  assessPageRisk,
+  assessTextRisk,
+  extractLinkCandidates,
+  mergeRisk,
+  type PageRiskInput,
+} from '../../src/services/risk.js';
 import { parseNlpModelOutput, parseVisionModelOutput } from '../../src/services/llm/schemas.js';
 import { parseTaskMessage } from '../../src/services/nlp.js';
 import type { LlmProvider } from '../../src/services/llm/types.js';
@@ -71,6 +78,99 @@ describe('Local risk heuristics', () => {
       assessMediaRisk({ caption: 'bayar besok', ocrText: 'Kirim kode OTP ke admin sekarang', vision: null }).flagged
     ).toBe(true);
     expect(assessMediaRisk({ caption: 'struk belanja', ocrText: 'Total 50.000', vision: null }).flagged).toBe(false);
+  });
+});
+
+describe('Link extraction', () => {
+  it('extracts links with and without a scheme, keeping path case and dropping trailing punctuation', () => {
+    expect(extractLinkCandidates('cek https://Bit.ly/AbC12, lalu promo-murah.xyz/Login!')).toEqual([
+      'https://bit.ly/AbC12',
+      'http://promo-murah.xyz/Login',
+    ]);
+  });
+
+  it('ignores filenames and tokens without a known TLD, and dedupes', () => {
+    expect(extractLinkCandidates('kirim laporan.pdf dan notes.txt')).toEqual([]);
+    expect(extractLinkCandidates('www.example.com dan http://www.example.com/')).toEqual(['http://www.example.com/']);
+  });
+});
+
+describe('Page risk', () => {
+  const base: PageRiskInput = {
+    requestedUrl: 'https://toko-online-baru.com/',
+    finalUrl: 'https://toko-online-baru.com/',
+    redirectChain: [],
+    title: 'Toko Online Baru',
+    description: '',
+    forms: { total: 0, password: 0, otp: 0, card: 0, pin: 0, externalActionHosts: [] },
+    downloadFilename: null,
+    tlsError: false,
+    internalTarget: false,
+    safeBrowsing: [],
+  };
+
+  it('does not flag an ordinary page', () => {
+    expect(assessPageRisk(base).flagged).toBe(false);
+  });
+
+  it('flags a login page that impersonates a bank on a non-official domain', () => {
+    const risk = assessPageRisk({
+      ...base,
+      title: 'KlikBCA Individual - Login',
+      forms: { ...base.forms, total: 1, password: 1 },
+    });
+    expect(risk.categories).toContain('phishing');
+    expect(risk.reasons.join(' ')).toContain('BCA');
+  });
+
+  it('does not flag the official bank login', () => {
+    const risk = assessPageRisk({
+      ...base,
+      requestedUrl: 'https://ibank.klikbca.com/',
+      finalUrl: 'https://ibank.klikbca.com/',
+      title: 'KlikBCA Individual - Login',
+      forms: { ...base.forms, total: 1, password: 1 },
+    });
+    expect(risk.flagged).toBe(false);
+  });
+
+  it('flags a redirect that lands on a suspicious domain asking for an OTP', () => {
+    const risk = assessPageRisk({
+      ...base,
+      requestedUrl: 'https://bit.ly/abc',
+      redirectChain: ['https://bit.ly/abc'],
+      finalUrl: 'https://verif-hadiah.xyz/otp',
+      forms: { ...base.forms, total: 1, otp: 1 },
+    });
+    expect(risk.categories).toContain('phishing');
+  });
+
+  it('flags APK downloads, Safe Browsing matches and gambling titles', () => {
+    expect(assessPageRisk({ ...base, downloadFilename: 'undangan.apk' }).categories).toEqual(['malware']);
+    expect(assessPageRisk({ ...base, safeBrowsing: ['phishing'] }).categories).toEqual(['phishing']);
+    expect(assessPageRisk({ ...base, title: 'SLOT GACOR MAXWIN - Daftar Sekarang' }).categories).toEqual(['gambling']);
+  });
+
+  it('flags a public link that leads into the internal network', () => {
+    const risk = assessPageRisk({
+      ...base,
+      requestedUrl: 'https://promo-baru.xyz/',
+      redirectChain: ['https://promo-baru.xyz/', 'http://192.168.1.1/admin'],
+      finalUrl: null,
+      internalTarget: true,
+    });
+    expect(risk.categories).toContain('phishing');
+    expect(risk.reasons.join(' ')).toContain('jaringan internal');
+  });
+
+  it('does not penalize the http:// prefix added to scheme-less links', () => {
+    const risk = assessPageRisk({
+      ...base,
+      requestedUrl: 'http://promo-baru.xyz/',
+      redirectChain: ['http://promo-baru.xyz/'],
+      finalUrl: 'https://promo-baru.xyz/',
+    });
+    expect(risk.flagged).toBe(false);
   });
 });
 

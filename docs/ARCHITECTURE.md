@@ -71,6 +71,8 @@ Tier order is the default; each operation's order comes from `LLM_CHAIN_*` (see 
 | **Reminder Worker** | `src/services/reminder.ts` | Calculates adaptive `remind_at` offsets, queries due and overdue tasks every 60 seconds, dispatches alerts, and updates notification flags. |
 | **Morning Digest** | `src/services/morning-digest.ts` | Dispatches opt-in daily morning task summaries at configured local time with cached AI/local pantun motivation. |
 | **Media Service** | `src/services/media.ts` | Multi-layer media validation (magic bytes), CDR sanitization via Sharp (configurable 4K high vs 2K compact), S3/local storage, and AI screening. |
+| **Link Review** | `src/services/link-review.ts` | Optional background check of links in messages: inspector client, Google Safe Browsing lookup, local page rules (`assessPageRisk`), and the `link_review` LLM judge. Sends a follow-up message and holds the task when a link is dangerous. |
+| **Link Inspector** | `src/link-inspector/` | Separate service (own container: `Dockerfile.link-inspector`; `docker-compose.link-inspector.yml` for Dokploy). Opens a link in a fresh headless Chromium context behind an SSRF guard proxy and returns final URL, redirects, page text, form counts, downloads, and a screenshot. |
 | **Telemetry Service** | `src/services/telemetry.ts` | Records hourly aggregated runtime metrics, sanitizes and logs error events, and feeds dashboard telemetry. |
 | **Monitoring Dashboard** | `src/dashboard/server.ts` | Lightweight HTTP Basic Auth web dashboard (port 3080) for real-time monitoring of bot status, socket, memory, tasks, and telemetry. |
 | **Affirmation Service** | `src/services/affirmation.ts` | Produces positive congratulatory feedback tailored to the completed task using the configured LLM chain or local curated Indonesian affirmations. |
@@ -348,3 +350,9 @@ erDiagram
 5. **Access Control**:
    - Incoming messages from unauthorized JIDs are immediately dropped if `is_allowed = false` in `user_settings`.
    - The bot ignores group chats (`@g.us`) and status broadcasts (`status@broadcast`) to prevent spam or token exhaustion.
+6. **Link Inspection Isolation** ([ADR 0004](adr/0004-headless-link-inspection.md)):
+   - Untrusted pages are rendered only in the `link-inspector` container, never in the bot process. The bot calls `POST /inspect` with a bearer token; the container publishes no ports.
+   - Every Chromium request goes through a per-inspection guard proxy that resolves DNS, rejects private, loopback, link-local, CGNAT, multicast and cloud-metadata addresses (IPv4 and IPv6, including mapped / NAT64 / 6to4 forms) and internal names, then connects to the checked IP. The browser's global proxy points at a dead port, so a missed proxy setting fails closed.
+   - Downloads, service workers, popups, WebRTC UDP and QUIC are disabled; each inspection uses a fresh context and is bounded by navigation timeout, byte cap and concurrency limit.
+   - Page text is passed to the LLM inside `<halaman_web>` as untrusted data. Local rules and Safe Browsing can flag on their own; the LLM can only raise the verdict.
+   - When the guard refuses a main-frame navigation (the link itself or any redirect hop), the inspector returns `blocked_target` with the refused hop in `redirectChain`. `assessPageRisk` treats that as a flag (`internalTarget`): a public link that leads to a router or other internal address is dangerous, not merely unreachable.

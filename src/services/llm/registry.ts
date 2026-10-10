@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../../config/index.js';
-import { getLlmConfig, type LlmConfig } from '../../config/llm.js';
+import { getLlmConfig, isVisionOperation, type LlmConfig } from '../../config/llm.js';
 import type { LlmProvider, Operation } from './types.js';
 import { createGeminiProvider } from './providers/gemini.js';
 import { createAntigravityProvider } from './providers/antigravity.js';
@@ -20,8 +20,10 @@ export interface ProviderOverride {
   providers?: LlmProvider[];
 }
 
+/** link_review runs in the background after the reply, so providers may take longer on page text + screenshot. */
 function geminiTimeout(op: Operation, cfg: LlmConfig): number {
-  if (op === 'vision_screen') return Math.max(cfg.gemini.timeoutMs, 4000);
+  if (op === 'link_review') return Math.max(cfg.gemini.timeoutMs, 15_000);
+  if (isVisionOperation(op)) return Math.max(cfg.gemini.timeoutMs, 4000);
   return cfg.gemini.timeoutMs;
 }
 
@@ -60,7 +62,7 @@ export function providersForOperation(op: Operation, override?: ProviderOverride
       continue;
     }
     if (id === 'openai') {
-      if (!cfg.openai.configured || (op === 'vision_screen' && !cfg.openai.vision)) continue;
+      if (!cfg.openai.configured || (isVisionOperation(op) && !cfg.openai.vision)) continue;
       providers.push(
         createOpenAiProvider({
           apiKey: cfg.reveal('openai'),
@@ -91,7 +93,7 @@ export function providersForOperation(op: Operation, override?: ProviderOverride
         createAntigravityProvider({
           url,
           token: config.antigravityBridgeToken || cfg.reveal('antigravity'),
-          timeoutMs: cfg.antigravity.timeoutMs,
+          timeoutMs: op === 'link_review' ? Math.max(cfg.antigravity.timeoutMs, 45_000) : cfg.antigravity.timeoutMs,
         })
       );
     }

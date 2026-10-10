@@ -9,6 +9,21 @@ import type { LlmProvider, LlmRequest, Operation, TokenUsage } from './types.js'
 
 const SKIPPED = new Set(['skipped_breaker_open', 'skipped_unconfigured', 'skipped_budget']);
 
+type BudgetKey = 'budgetMs' | 'visionBudgetMs' | 'linkBudgetMs';
+const BUDGET_KEY: Record<Operation, BudgetKey> = {
+  nlp_parse: 'budgetMs',
+  affirmation: 'budgetMs',
+  reminder_message: 'budgetMs',
+  morning_motivation: 'budgetMs',
+  vision_screen: 'visionBudgetMs',
+  link_review: 'linkBudgetMs',
+};
+const BUDGET_ENV: Record<BudgetKey, string> = {
+  budgetMs: 'LLM_TOTAL_BUDGET_MS',
+  visionBudgetMs: 'LLM_VISION_BUDGET_MS',
+  linkBudgetMs: 'LLM_LINK_BUDGET_MS',
+};
+
 export interface ChainDeps {
   providers: LlmProvider[];
   breaker: CircuitBreaker;
@@ -63,7 +78,7 @@ export function productionDeps(operation: Operation, providers: LlmProvider[]): 
     ...productionObserver(),
     providers,
     breaker: getSharedBreaker(config.breaker),
-    budgetMs: operation === 'vision_screen' ? config.visionBudgetMs : config.budgetMs,
+    budgetMs: config[BUDGET_KEY[operation]],
     maxRetries: config.maxRetries,
     minAttemptMs: config.minAttemptMs,
     now: Date.now,
@@ -110,10 +125,7 @@ const TIMEOUT_ENV: Record<LlmProvider['id'], string> = {
 
 /** Names the limit that fired, so a timeout row says which env var to raise. */
 export function timeoutDetail(operation: Operation, provider: LlmProvider, limitMs: number): string {
-  const source =
-    limitMs < provider.timeoutMs
-      ? `sisa ${operation === 'vision_screen' ? 'LLM_VISION_BUDGET_MS' : 'LLM_TOTAL_BUDGET_MS'}`
-      : TIMEOUT_ENV[provider.id];
+  const source = limitMs < provider.timeoutMs ? `sisa ${BUDGET_ENV[BUDGET_KEY[operation]]}` : TIMEOUT_ENV[provider.id];
   return `Tidak ada respons dalam ${Math.round(limitMs)} ms (batas: ${source})`;
 }
 

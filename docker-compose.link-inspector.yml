@@ -1,0 +1,30 @@
+# Link Inspector alone, for Dokploy (Create Service → Compose, Compose Path: ./docker-compose.link-inspector.yml).
+# Joins dokploy-network so the bot app reaches it at http://todo-link-inspector:7870. Publish no domain or port.
+services:
+  link-inspector:
+    build:
+      context: .
+      dockerfile: Dockerfile.link-inspector
+    restart: unless-stopped
+    environment:
+      - LINK_INSPECTOR_TOKEN=${LINK_INSPECTOR_TOKEN}
+      - LINK_CHECK_PROXY_URL=${LINK_CHECK_PROXY_URL:-}
+      - INSPECTOR_MAX_CONCURRENT=${INSPECTOR_MAX_CONCURRENT:-2}
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 512m
+    mem_limit: 1g
+    pids_limit: 512
+    networks:
+      dokploy-network:
+        aliases:
+          - todo-link-inspector
+
+networks:
+  dokploy-network:
+    external: true

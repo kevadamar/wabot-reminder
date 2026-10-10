@@ -58,6 +58,7 @@ export const LLM_HTML = `<!doctype html>
             <option value="reminder_message">reminder_message</option>
             <option value="morning_motivation">morning_motivation</option>
             <option value="vision_screen">vision_screen</option>
+            <option value="link_review">link_review</option>
           </select>
         </label>
         <label>Provider

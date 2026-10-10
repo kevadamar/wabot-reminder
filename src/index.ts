@@ -6,6 +6,7 @@ import { config } from './config/index.js';
 import { startDashboardServer } from './dashboard/server.js';
 import { flushTelemetry, telemetry } from './services/telemetry.js';
 import { formatLlmStartupLog, getLlmConfig } from './config/llm.js';
+import { formatLinkReviewStartupLog, getLinkReviewConfig } from './config/link-review.js';
 
 async function bootstrap() {
   console.log('🚀 Memulai WhatsApp To-Do Reminder Bot...');
@@ -14,6 +15,12 @@ async function bootstrap() {
     console.log(formatLlmStartupLog(getLlmConfig()));
   } catch (err) {
     console.error('❌ Konfigurasi LLM tidak valid:', err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
+  try {
+    console.log(formatLinkReviewStartupLog(getLinkReviewConfig()));
+  } catch (err) {
+    console.error('❌ Konfigurasi cek link tidak valid:', err instanceof Error ? err.message : err);
     process.exit(1);
   }
 
