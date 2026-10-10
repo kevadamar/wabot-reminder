@@ -133,6 +133,43 @@ describe('Morning motivation validation', () => {
     expect(records[0].outcome).toBe('invalid_output');
     expect(records[0].response).toEqual({ chars: 12 });
   });
+
+  const PANTUN = 'Pagi cerah membuka hari,\nSemoga semua urusan lancar.';
+  const slowProvider = (id: 'gemini' | 'antigravity', timeoutMs: number, delayMs: number) => ({
+    id,
+    model: `${id}-test`,
+    timeoutMs,
+    capabilities: { structuredOutput: false, vision: false },
+    generate: ({ signal }: { signal: AbortSignal }) =>
+      new Promise<{ text: string }>((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ text: PANTUN }), delayMs);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(signal.reason);
+        }, { once: true });
+      }),
+  });
+
+  it('lets non-Gemini providers use their own timeout instead of the pantun cap', async () => {
+    const result = await generateMorningMotivation({
+      providers: [slowProvider('antigravity', 1000, 30)],
+      timeoutMs: 5,
+      observer: {},
+    });
+    expect(result).toMatchObject({ text: PANTUN, source: 'antigravity' });
+  });
+
+  it('still caps Gemini at the pantun timeout', async () => {
+    const records: any[] = [];
+    await expect(
+      generateMorningMotivation({
+        providers: [slowProvider('gemini', 1000, 30)],
+        timeoutMs: 5,
+        observer: { observe: (r) => records.push(r) },
+      })
+    ).rejects.toThrow();
+    expect(records[0]).toMatchObject({ provider: 'gemini', outcome: 'timeout' });
+  });
 });
 
 describe('Morning digest formatting', () => {
