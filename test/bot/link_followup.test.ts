@@ -117,6 +117,32 @@ describe('Link check follow-up', () => {
     expect((await db.select().from(tasks))[0]?.status).toBe('pending');
   });
 
+  it('does not end the safe note with a double period when the summary already has one', async () => {
+    setLinkReviewDepsForTests({ ...safe, judge: async () => ({ verdict: { category: 'none', reason: null }, summary: 'Halaman promo toko.' }) });
+    await say('besok jam 10:00 cek promo-baru.xyz/klaim', 'IN_1');
+
+    expect(sent[1]!.text).toContain('Halaman promo toko.');
+    expect(sent[1]!.text).not.toContain('..');
+  });
+
+  it('holds the task when the link lands on the government block page', async () => {
+    setLinkReviewDepsForTests({
+      ...safe,
+      inspect: async (url) =>
+        page(url, {
+          redirectChain: [url, 'https://internet-positif.info/'],
+          finalUrl: 'https://internet-positif.info/',
+          title: 'Internet Positif - Positifkan diri kamu',
+          description: 'Halaman yang kamu tuju tidak dapat diakses',
+        }),
+    });
+    await say('besok jam 10:00 revamp toko-contoh.com', 'IN_1');
+
+    expect(sent[1]!.text).toContain('diblokir pemerintah');
+    expect(sent[1]!.text).not.toContain('nggak ada tanda bahaya');
+    expect((await db.select().from(tasks))[0]?.status).toBe('pending_risk_confirmation');
+  });
+
   it('tells the user when the page could not be opened', async () => {
     setLinkReviewDepsForTests({ ...safe, inspect: async (url) => page(url, { finalUrl: null, error: 'dns_failed', title: '' }) });
     await say('besok jam 10:00 cek promo-baru.xyz/klaim', 'IN_1');

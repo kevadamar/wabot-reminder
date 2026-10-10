@@ -6,6 +6,7 @@
  */
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { chromium, type Browser } from 'playwright-core';
+import { createDohLookup } from './doh.ts';
 import { inspectUrl } from './inspect.ts';
 import { handleInspectorRequest } from './server.ts';
 
@@ -32,8 +33,22 @@ if (env.LINK_CHECK_PROXY_URL?.trim()) {
   }
 }
 
+const dnsMode = env.INSPECTOR_DNS?.trim().toLowerCase() || 'system';
+if (dnsMode !== 'system' && dnsMode !== 'doh') {
+  console.error('❌ INSPECTOR_DNS harus "system" atau "doh".');
+  process.exit(1);
+}
+const dohUrl = env.INSPECTOR_DOH_URL?.trim() || 'https://1.1.1.1/dns-query';
+if (dnsMode === 'doh' && !dohUrl.startsWith('https://')) {
+  console.error('❌ INSPECTOR_DOH_URL harus https:// (endpoint DNS-over-HTTPS JSON, misalnya https://1.1.1.1/dns-query).');
+  process.exit(1);
+}
+
 const options = {
-  lookup: (host: string) => dnsLookup(host, { all: true, verbatim: true }),
+  lookup:
+    dnsMode === 'doh'
+      ? createDohLookup(dohUrl)
+      : (host: string) => dnsLookup(host, { all: true, verbatim: true }),
   upstreamProxy,
   navigationTimeoutMs: readInt('INSPECTOR_NAV_TIMEOUT_MS', 15_000, 3_000, 60_000),
   settleMs: readInt('INSPECTOR_SETTLE_MS', 1_500, 0, 10_000),
@@ -95,5 +110,5 @@ Bun.serve({
   },
 });
 console.log(
-  `✅ Link Inspector siap di http://${hostname}:${port} (Chromium ${(await getBrowser()).version()}${upstreamProxy ? `, lewat proxy ${upstreamProxy.host}` : ''})`
+  `✅ Link Inspector siap di http://${hostname}:${port} (Chromium ${(await getBrowser()).version()}, DNS ${dnsMode === 'doh' ? `DoH ${new URL(dohUrl).host}` : 'sistem'}${upstreamProxy ? `, lewat proxy ${upstreamProxy.host}` : ''})`
 );

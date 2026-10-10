@@ -124,6 +124,7 @@ const RISK_LABELS: Record<RiskCategory, string> = {
   scam: 'modus penipuan',
   phishing: 'link phishing',
   malware: 'aplikasi/APK berbahaya',
+  blocked: 'situs yang diblokir pemerintah',
 };
 
 const RISK_TIPS: Record<RiskCategory, string> = {
@@ -131,6 +132,8 @@ const RISK_TIPS: Record<RiskCategory, string> = {
   phishing: '🔗 Jangan isi data login, OTP, atau data kartu di link yang nggak kamu kenal. Cek alamat situsnya pelan-pelan dulu.',
   scam: '🛡️ Bank, kurir, dan instansi resmi nggak pernah minta OTP, PIN, atau transfer "biaya admin" lewat chat.',
   gambling: '🎰 Judi online didesain bikin kalah dan sering jadi pintu ke pinjol & penipuan. Mending jauhi dulu ya 🙏',
+  blocked:
+    '🚫 Situs yang diblokir biasanya berisi judi online, penipuan, atau konten ilegal, atau domainnya sudah dipakai pihak lain. Kalau kamu yakin ini situs resmi, pastikan dulu alamatnya benar ya.',
 };
 
 /** `notice`: the alert concerns a task that is no longer active, so there is nothing to confirm. */
@@ -195,7 +198,7 @@ function buildLinkCheckNote(reviews: LinkReview[]): string {
     if (review.status === 'unreachable') {
       return `⚠️ *${review.host}*: nggak bisa aku buka buat dicek (situsnya nggak merespons atau nggak ditemukan). Hati-hati kalau mau membukanya ya.`;
     }
-    const about = review.summary ?? (review.title ? `"${review.title}"` : null);
+    const about = review.summary?.replace(/[.!?…\s]+$/, '') || (review.title ? `"${review.title}"` : null);
     return `✅ *${describeLink(review)}*: nggak ada tanda bahaya${about ? `, isinya: ${about}` : ''}.`;
   });
   const footer = reviews.some((review) => review.status === 'safe')

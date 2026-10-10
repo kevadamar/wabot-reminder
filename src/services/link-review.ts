@@ -285,6 +285,7 @@ export async function reviewLink(url: string, deps: LinkReviewDeps): Promise<Lin
       redirectChain: page?.redirectChain ?? [],
       title: page?.title ?? '',
       description: page?.description ?? '',
+      text: page?.text ?? '',
       forms: page?.forms ?? { total: 0, password: 0, otp: 0, card: 0, pin: 0, externalActionHosts: [] },
       downloadFilename: page?.download?.filename ?? null,
       tlsError: page?.error === 'tls_error',

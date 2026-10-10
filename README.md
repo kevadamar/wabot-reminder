@@ -178,6 +178,8 @@ Hasilnya dikirim sebagai pesan susulan *🔎 Hasil cek link*. Jika berbahaya, tu
 
 **Supaya tidak terlihat seperti server:** dari sisi browser, request terlihat seperti Chrome Android biasa (`navigator.webdriver=false`, header `Sec-CH-UA` Google Chrome mobile, tanpa jejak "Headless"). Namun IP-nya tetap IP datacenter server. Jika situs memblokir IP datacenter, isi `LINK_CHECK_PROXY_URL` di inspector dengan proxy HTTP (misalnya residential); pengecekan anti-SSRF tetap jalan sebelum koneksi diteruskan ke proxy.
 
+**Situs yang diblokir pemerintah:** di server Indonesia, DNS ISP (bahkan query ke `1.1.1.1:53`) menjawab situs yang masuk daftar blokir Komdigi/TrustPositif dengan halaman *Internet Positif*. Bot mengenali halaman ini dan menandainya *situs yang diblokir pemerintah*; tugasnya ditahan sampai kamu balas *lanjut* / *batal*. Kalau ingin inspector melihat isi asli situsnya (misalnya untuk tahu bahwa domain itu sebenarnya me-redirect ke situs judi), set `INSPECTOR_DNS=doh` di inspector. DNS lalu di-resolve lewat DNS-over-HTTPS (`INSPECTOR_DOH_URL`, default `https://1.1.1.1/dns-query`) dan pemeriksaan anti-SSRF tetap berlaku pada IP hasilnya. Mode ini hanya mengubah DNS di container inspector, tetapi secara teknis melewati filter DNS ISP; pertimbangkan sebelum mengaktifkannya.
+
 **Menjalankan dengan Docker Compose:**
 ```bash
 # .env: LINK_CHECK_ENABLED=true, LINK_INSPECTOR_TOKEN=<openssl rand -hex 32>
@@ -195,6 +197,7 @@ docker compose --profile link-check up -d --build
 | `LINK_CHECK_MAX_LINKS` / `LINK_CHECK_TIMEOUT_MS` | `2` / `30000` | Maksimal link per pesan & batas waktu inspector |
 | `LLM_LINK_BUDGET_MS` | `60000` | Total waktu LLM untuk menilai satu halaman |
 | `LINK_CHECK_PROXY_URL` (inspector) | — | Proxy HTTP upstream opsional |
+| `INSPECTOR_DNS` / `INSPECTOR_DOH_URL` (inspector) | `system` / `https://1.1.1.1/dns-query` | `doh` = resolve lewat DNS-over-HTTPS supaya isi asli situs yang diblokir DNS ISP bisa dinilai |
 
 Antigravity butuh sekitar 15–40 detik per halaman (teks + screenshot). Jika bridge dipakai di `LLM_CHAIN_LINK`, naikkan juga `ANTIGRAVITY_TIMEOUT_MS` di proses bridge (pm2) ke sekitar `45000`; bot otomatis menunggu sampai 45 detik untuk operasi ini.
 

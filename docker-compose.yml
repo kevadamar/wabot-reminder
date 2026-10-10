@@ -46,6 +46,8 @@ services:
       - LINK_INSPECTOR_TOKEN=${LINK_INSPECTOR_TOKEN:-}
       - LINK_CHECK_PROXY_URL=${LINK_CHECK_PROXY_URL:-}
       - INSPECTOR_MAX_CONCURRENT=${INSPECTOR_MAX_CONCURRENT:-2}
+      - INSPECTOR_DNS=${INSPECTOR_DNS:-system}
+      - INSPECTOR_DOH_URL=${INSPECTOR_DOH_URL:-}
     read_only: true
     tmpfs:
       - /tmp:size=256m

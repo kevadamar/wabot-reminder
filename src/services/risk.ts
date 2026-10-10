@@ -7,8 +7,9 @@
  * The result is used to warn the user and ask for confirmation, never to silently drop input.
  */
 
-export type RiskCategory = 'gambling' | 'scam' | 'phishing' | 'malware';
-export type LlmRiskCategory = RiskCategory | 'none';
+/** `blocked`: the page is a government / ISP block notice. Only local page rules set it, never the LLM. */
+export type RiskCategory = 'gambling' | 'scam' | 'phishing' | 'malware' | 'blocked';
+export type LlmRiskCategory = Exclude<RiskCategory, 'blocked'> | 'none';
 
 export interface LlmRiskVerdict {
   category: LlmRiskCategory;
@@ -21,7 +22,7 @@ export interface RiskAssessment {
   reasons: string[];
 }
 
-export const RISK_CATEGORIES: readonly RiskCategory[] = ['malware', 'phishing', 'scam', 'gambling'];
+export const RISK_CATEGORIES: readonly RiskCategory[] = ['malware', 'phishing', 'scam', 'gambling', 'blocked'];
 
 const FLAG_THRESHOLD = 3;
 const MAX_REASON_LENGTH = 140;
@@ -312,6 +313,8 @@ export interface PageRiskInput {
   redirectChain: string[];
   title: string;
   description: string;
+  /** Visible page text; only used to recognize short block notices. */
+  text: string;
   forms: { total: number; password: number; otp: number; card: number; pin: number; externalActionHosts: string[] };
   downloadFilename: string | null;
   tlsError: boolean;
@@ -341,9 +344,32 @@ const DANGEROUS_DOWNLOAD = /\.(?:apk|xapk|apks|exe|msi|scr|bat|cmd|jar|vbs)$/i;
 const GAMBLING_RULES = TEXT_RULES.filter((rule) => rule.category === 'gambling');
 
 /**
- * Local verdict for a visited page (redirects, forms, downloads, Safe Browsing). Only the title and
- * description are matched against gambling rules: body text of news about judol would false-flag,
- * so the body is left to the LLM. Plain http only counts when a password form is served over it.
+ * Indonesian ISPs answer DNS for sites on the Komdigi (TrustPositif) list with their own notice page,
+ * either by redirecting to one of these hosts or by serving the notice under the original domain.
+ */
+const BLOCK_PAGE_DOMAINS = [
+  'internetpositif.id',
+  'internet-positif.info',
+  'internetsehatku.com',
+  'trustpositif.komdigi.go.id',
+  'trustpositif.kominfo.go.id',
+];
+const BLOCK_NOTICE_SOURCE = /internet\s?positif|internet\s?sehat|trust\s?positif|kominfo|komdigi|kementerian\s+komunikasi/i;
+const BLOCK_NOTICE_ACTION = /diblokir|tidak dapat diakses|pemblokiran|peraturan perundang/i;
+/** Notices are short; a long page that mentions blocking is usually news and is left to the LLM. */
+const BLOCK_NOTICE_MAX_CHARS = 1500;
+
+function isBlockPage(visited: string[], input: PageRiskInput): boolean {
+  if (visited.some((url) => BLOCK_PAGE_DOMAINS.some((domain) => isUnderDomain(hostOf(url)?.host ?? '', domain)))) return true;
+  if (input.text.length > BLOCK_NOTICE_MAX_CHARS) return false;
+  const notice = `${input.title}\n${input.description}\n${input.text}`;
+  return BLOCK_NOTICE_SOURCE.test(notice) && BLOCK_NOTICE_ACTION.test(notice);
+}
+
+/**
+ * Local verdict for a visited page (redirects, forms, downloads, Safe Browsing, block notices). Only
+ * the title and description are matched against gambling rules: body text of news about judol would
+ * false-flag, so the body is left to the LLM. Plain http only counts when a password form is served over it.
  */
 export function assessPageRisk(input: PageRiskInput): RiskAssessment {
   const signals: Signal[] = [];
@@ -391,6 +417,13 @@ export function assessPageRisk(input: PageRiskInput): RiskAssessment {
       category: 'phishing',
       weight: FLAG_THRESHOLD,
       reason: 'Link-nya mengarah ke alamat jaringan internal (misalnya router atau perangkat lokal)',
+    });
+  }
+  if (isBlockPage(visited, input)) {
+    signals.push({
+      category: 'blocked',
+      weight: FLAG_THRESHOLD,
+      reason: 'Situsnya masuk daftar blokir pemerintah (Internet Positif / TrustPositif), jadi isi aslinya nggak bisa aku cek',
     });
   }
 

@@ -104,6 +104,7 @@ describe('Page risk', () => {
     description: '',
     forms: { total: 0, password: 0, otp: 0, card: 0, pin: 0, externalActionHosts: [] },
     downloadFilename: null,
+    text: '',
     tlsError: false,
     internalTarget: false,
     safeBrowsing: [],
@@ -161,6 +162,41 @@ describe('Page risk', () => {
     });
     expect(risk.categories).toContain('phishing');
     expect(risk.reasons.join(' ')).toContain('jaringan internal');
+  });
+
+  it('flags a link that lands on the government block page (Internet Positif)', () => {
+    const risk = assessPageRisk({
+      ...base,
+      requestedUrl: 'http://toko-contoh.com/',
+      redirectChain: ['http://toko-contoh.com/', 'https://internet-positif.info/'],
+      finalUrl: 'https://internet-positif.info/',
+      title: '(47) Internet Positif - Positifkan diri kamu',
+      description: 'Halaman yang kamu tuju tidak dapat diakses',
+    });
+    expect(risk.categories).toEqual(['blocked']);
+    expect(risk.reasons.join(' ')).toContain('blokir pemerintah');
+  });
+
+  it('recognizes a block page served under the original domain by its short notice text', () => {
+    const risk = assessPageRisk({
+      ...base,
+      requestedUrl: 'http://toko-contoh.com/',
+      finalUrl: 'http://toko-contoh.com/',
+      title: 'Pemberitahuan',
+      text: 'Akses ke situs ini telah diblokir oleh Komdigi karena melanggar peraturan perundang-undangan. Laporkan lewat kanal pengaduan resmi.',
+    });
+    expect(risk.categories).toEqual(['blocked']);
+  });
+
+  it('does not treat a long news article about blocking as a block page', () => {
+    const risk = assessPageRisk({
+      ...base,
+      requestedUrl: 'https://berita-teknologi.net/artikel',
+      finalUrl: 'https://berita-teknologi.net/artikel',
+      title: 'Komdigi blokir 1.000 situs judol lewat Internet Positif',
+      text: `Kementerian Komunikasi dan Digital (Komdigi) kembali memblokir situs yang melanggar peraturan perundang-undangan. ${'Isi artikel panjang. '.repeat(120)}`,
+    });
+    expect(risk.categories).not.toContain('blocked');
   });
 
   it('does not penalize the http:// prefix added to scheme-less links', () => {
