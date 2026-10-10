@@ -5,7 +5,7 @@ import { recordAiUsage, telemetry } from './telemetry.js';
 import { createGeminiProvider } from './llm/providers/gemini.js';
 import { providersForOperation } from './llm/registry.js';
 import type { LlmProvider } from './llm/types.js';
-import { createCallTracer, productionObserver, type ChainDeps } from './llm/chain.js';
+import { createCallTracer, productionObserver, timeoutDetail, type ChainDeps } from './llm/chain.js';
 import { classify } from './llm/errors.js';
 import {
   dailyDigestDeliveries,
@@ -492,7 +492,9 @@ export async function getOrCreateMorningMotivation(
 export async function generateMorningMotivation(options: {
   client?: any;
   model?: string;
+  /** Pantun cap for Gemini only; other providers keep their own *_TIMEOUT_MS. */
   timeoutMs?: number;
+  providers?: LlmProvider[];
   observer?: Pick<ChainDeps, 'observe' | 'payloadMaxChars'>;
 } = {}): Promise<MorningMotivationGeneration> {
   const cfg = getLlmConfig();
@@ -509,7 +511,7 @@ export async function generateMorningMotivation(options: {
       }),
     ];
   } else {
-    providers = providersForOperation('morning_motivation').map((provider) =>
+    providers = (options.providers ?? providersForOperation('morning_motivation')).map((provider) =>
       provider.id === 'gemini' ? { ...provider, timeoutMs } : provider
     );
   }
@@ -530,8 +532,11 @@ export async function generateMorningMotivation(options: {
   );
 
   let lastError: unknown;
+  const deadline = Date.now() + cfg.budgetMs;
   for (const provider of providers) {
-    const limitMs = Math.min(provider.timeoutMs, timeoutMs);
+    const remaining = deadline - Date.now();
+    if (remaining < cfg.minAttemptMs) break;
+    const limitMs = Math.min(provider.timeoutMs, remaining);
     const signal = AbortSignal.timeout(limitMs);
     const startedAt = performance.now();
     const requestId = tracer.nextId();
@@ -565,7 +570,12 @@ export async function generateMorningMotivation(options: {
       const kind = responseText !== null && !signal.aborted ? 'invalid_output' : classify(error, signal);
       tracer.failure(provider, requestId, kind, error, startedAt, {
         responseText,
-        detail: kind === 'timeout' ? `Tidak ada respons dalam ${limitMs} ms (batas pantun pagi)` : undefined,
+        detail:
+          kind !== 'timeout'
+            ? undefined
+            : provider.id === 'gemini'
+              ? `Tidak ada respons dalam ${limitMs} ms (batas pantun pagi)`
+              : timeoutDetail('morning_motivation', provider, limitMs),
       });
       recordAiUsage(telemetry, {
         operation: 'morning_motivation',
