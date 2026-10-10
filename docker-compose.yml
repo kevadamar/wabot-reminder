@@ -23,11 +23,39 @@ services:
       - DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-}
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
       - TELEMETRY_FLUSH_INTERVAL_MS=${TELEMETRY_FLUSH_INTERVAL_MS:-60000}
+      - LINK_CHECK_ENABLED=${LINK_CHECK_ENABLED:-false}
+      - LINK_INSPECTOR_URL=${LINK_INSPECTOR_URL:-http://link-inspector:7870}
+      - LINK_INSPECTOR_TOKEN=${LINK_INSPECTOR_TOKEN:-}
+      - GOOGLE_SAFE_BROWSING_API_KEY=${GOOGLE_SAFE_BROWSING_API_KEY:-}
     ports:
       - "${DASHBOARD_PORT:-3080}:${DASHBOARD_PORT:-3080}"
     # When running alongside existing host postgres or host antigravity bridge:
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # Opens links from messages in an isolated headless Chromium (LINK_CHECK_ENABLED=true).
+  # Start with: docker compose --profile link-check up -d
+  # No published ports: only the bot reaches it over the compose network.
+  link-inspector:
+    profiles: ["link-check"]
+    build:
+      context: .
+      dockerfile: Dockerfile.link-inspector
+    restart: unless-stopped
+    environment:
+      - LINK_INSPECTOR_TOKEN=${LINK_INSPECTOR_TOKEN:-}
+      - LINK_CHECK_PROXY_URL=${LINK_CHECK_PROXY_URL:-}
+      - INSPECTOR_MAX_CONCURRENT=${INSPECTOR_MAX_CONCURRENT:-2}
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 512m
+    mem_limit: 1g
+    pids_limit: 512
 
   # Optional local postgres service if user wants standalone compose:
   # postgres:

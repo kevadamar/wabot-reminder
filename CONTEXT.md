@@ -26,6 +26,10 @@ The lifecycle state of a task in the database.
 **Risk Alert**:
 A casual warning sent when task input looks harmful to the user. Detection is a local rule layer plus an LLM verdict; the LLM can only add a flag, never clear one. It asks for confirmation instead of blocking.
 _Avoid_: Spam filter, content moderation
+
+**Link Check**:
+Optional background review of links in a message, sent as a follow-up after the normal reply. The **Link Inspector** service opens each link in an isolated browser; local page rules, Google Safe Browsing, and the LLM judge the result. A dangerous link raises a **Risk Alert** and moves the task to `pending_risk_confirmation`.
+_Avoid_: URL scan, link preview
 - `resolved`: Completed task marked by the user via checkmark emoji or command.
 - `cancelled`: Task terminated by user before completion.
 _Avoid_: State, stage

@@ -44,6 +44,7 @@ Proyek ini **open source dan gratis** di bawah [Lisensi MIT](LICENSE): bebas dip
   - Mendukung penentuan waktu pengingat khusus per tugas langsung dari bahasa alami (contoh: *"ingatkan 30 menit sebelumnya"*, *"ingatkan 1 jam sebelum"*, *"ingatkan H-1"*).
   - Pengingat darurat otomatis (*overdue alert*) jika tugas melewati deadline tanpa diselesaikan.
   - Nada pengingat bersahabat dan memotivasi (bukan gaya penagih hutang).
+- 🔎 **Cek Link Otomatis (opsional)**: Link di pesan dibuka oleh browser Chromium terisolasi, dicek ke Google Safe Browsing, lalu dinilai AI dari isi & screenshot halamannya. Hasilnya dikirim sebagai pesan susulan; jika berbahaya, tugasnya ditahan sampai kamu balas *lanjut* / *batal*. Lihat [Cek Link](#cek-link-opsional).
 - ✅ **Penyelesaian Fleksibel**: Cukup beri reaksi emoji **✅** di balon pesan bot WhatsApp, balas pesan dengan emoji ✅, atau ketik `selesai <ID>`.
 - 🎉 **Afirmasi Positif Dinamis**: Merayakan setiap tugas yang selesai dengan pujian gaul dan memotivasi dari AI.
 - 🐘 **PostgreSQL & Drizzle ORM**: Skema database yang scalable, terstruktur, dan mudah dikelola melalui pgAdmin atau TablePlus.
@@ -70,6 +71,7 @@ Proyek ini **open source dan gratis** di bawah [Lisensi MIT](LICENSE): bebas dip
   - [ADR 0001: Penggunaan PostgreSQL menggantikan SQLite](docs/adr/0001-postgresql-for-task-storage.md)
   - [ADR 0002: Penyimpanan Konfigurasi Dinamis di Database](docs/adr/0002-database-backed-settings.md)
   - [ADR 0003: Rantai Provider LLM yang Dapat Dikonfigurasi](docs/adr/0003-configurable-llm-provider-chain.md)
+  - [ADR 0004: Cek Link dengan Headless Browser Terisolasi](docs/adr/0004-headless-link-inspection.md)
 - 🔬 **Catatan Riset**: [rantai provider LLM](docs/research/configurable-llm-provider-chain.md), [keamanan lampiran & sub-tugas](docs/research/attachments-security-and-subtasks-design.md), [ringkasan pagi](docs/research/daily-morning-task-digest.md), [dashboard monitoring](docs/research/lightweight-monitoring-dashboard.md), [SLM vs LLM untuk parsing](docs/research/slm-vs-llm-task-parsing.md).
 - 🤝 **Komunitas**: [Panduan Kontribusi](CONTRIBUTING.md) · [Kode Etik](CODE_OF_CONDUCT.md) · [Kebijakan Keamanan](SECURITY.md)
 
@@ -132,6 +134,7 @@ Urutan provider AI diatur per operasi, dibaca dari kiri ke kanan. Jika provider 
 | `LLM_CHAIN_REMINDER` | Teks pengingat | `gemini,antigravity,local` |
 | `LLM_CHAIN_MORNING` | Pantun ringkasan pagi | `gemini,local` |
 | `LLM_CHAIN_VISION` | Screening & OCR gambar | `gemini,local` |
+| `LLM_CHAIN_LINK` | Menilai halaman dari link (teks + screenshot) | `gemini,antigravity,local` |
 | `LLM_CHAIN_DEFAULT` | Dipakai operasi yang tidak diatur khusus | — |
 
 ID yang valid: `gemini`, `openai` (termasuk endpoint OpenAI-compatible seperti OpenRouter, Groq, atau Ollama lewat `OPENAI_BASE_URL`), `anthropic`, `antigravity`, dan `local`. Provider yang belum dikonfigurasi dilewati dengan warning; jika ditulis eksplisit di `LLM_CHAIN_*` tetapi kredensialnya kosong, bot menolak start supaya salah konfigurasi langsung ketahuan. Log startup mencetak rantai efektif per operasi.
@@ -155,6 +158,45 @@ ID call (`3f9a1c2e-1`) dikirim ke bridge sebagai header `X-Request-Id`, jadi bar
 | `LLM_LOG_PAYLOADS` | `false` | Ikut catat isi prompt & response, data pribadi/secret disensor dan dipotong. Hanya untuk debugging |
 | `LLM_LOG_PAYLOAD_MAX_CHARS` | `2000` | Batas panjang isi yang dicatat (100–20000) |
 | `BRIDGE_LOG_PAYLOADS` / `BRIDGE_LOG_PAYLOAD_MAX_CHARS` | `false` / `2000` | Sama, untuk proses bridge di host |
+
+#### Cek Link (opsional)
+
+Jika pesan berisi link, bot membalas seperti biasa lalu mengecek link di latar belakang:
+
+1. **Link Inspector** (service terpisah, `src/link-inspector/`) membuka link dengan Chromium headless berprofil HP Android (user agent, client hints, bahasa `id-ID`, zona waktu Jakarta) dan mengikuti redirect, termasuk redirect JavaScript. Hasilnya: URL akhir, judul, teks, jumlah form password/OTP/kartu/PIN, unduhan otomatis (misalnya APK), dan screenshot.
+2. **Google Safe Browsing** mengecek semua URL di rantai redirect (opsional).
+3. **LLM** (`LLM_CHAIN_LINK`) menilai teks dan screenshot halaman. Aturan lokal dan Safe Browsing tetap memutuskan sendiri; LLM hanya bisa menaikkan status, tidak bisa menurunkan.
+
+Hasilnya dikirim sebagai pesan susulan *🔎 Hasil cek link*. Jika berbahaya, tugas ditahan (`pending_risk_confirmation`) sampai kamu balas *lanjut* / *batal*. Link ke domain populer (Google, YouTube, WhatsApp, situs bank resmi, dll.) dan `LINK_CHECK_ALLOWLIST` tidak dicek, kecuali halaman buatan pengguna seperti Google Docs/Forms/Sites dan link redirect (`google.com/url?q=…`). Pesan yang sudah ditandai berisiko oleh aturan lokal tidak dicek ulang.
+
+**Keamanan inspector:**
+- Semua request Chromium lewat *guard proxy* internal. Proxy ini me-resolve DNS, menolak alamat privat/loopback/link-local/metadata cloud (`169.254.169.254`) termasuk varian IPv6, dan mengunci koneksi ke IP yang sudah dicek. Dengan begitu link (atau JavaScript di halaman) tidak bisa mengakses jaringan internal server, termasuk lewat DNS rebinding.
+- Link publik yang ternyata mengarah ke jaringan internal (lewat redirect, atau domain yang resolve ke IP privat seperti router `192.168.x.x`) ditandai berbahaya, bukan sekadar "tidak bisa dibuka".
+- Unduhan, service worker, popup, WebRTC, dan QUIC dimatikan. Setiap pengecekan memakai context browser baru tanpa cookie.
+- Endpoint `/inspect` wajib bearer token. Di compose, service ini tidak membuka port ke luar, berjalan sebagai user non-root dengan filesystem read-only, `cap_drop: ALL`, dan batas memori.
+- Sandbox Chromium dimatikan secara default karena isolasi diserahkan ke container. Jika kernel host mengizinkan user namespace, set `INSPECTOR_CHROMIUM_SANDBOX=true`.
+
+**Supaya tidak terlihat seperti server:** dari sisi browser, request terlihat seperti Chrome Android biasa (`navigator.webdriver=false`, header `Sec-CH-UA` Google Chrome mobile, tanpa jejak "Headless"). Namun IP-nya tetap IP datacenter server. Jika situs memblokir IP datacenter, isi `LINK_CHECK_PROXY_URL` di inspector dengan proxy HTTP (misalnya residential); pengecekan anti-SSRF tetap jalan sebelum koneksi diteruskan ke proxy.
+
+**Menjalankan dengan Docker Compose:**
+```bash
+# .env: LINK_CHECK_ENABLED=true, LINK_INSPECTOR_TOKEN=<openssl rand -hex 32>
+docker compose --profile link-check up -d --build
+```
+
+**Dokploy:** di project yang sama dengan bot, buat service **Compose** dari repo yang sama dengan Compose Path `./docker-compose.link-inspector.yml`, tanpa domain atau port publik. Isi env `LINK_INSPECTOR_TOKEN` (dan `LINK_CHECK_PROXY_URL` jika perlu). Pakai Compose, bukan Application, supaya hardening container (read-only, `cap_drop`, `tmpfs`) ikut terpasang. Service ini bergabung ke `dokploy-network` dengan alias `todo-link-inspector`, jadi di app bot cukup set `LINK_INSPECTOR_URL=http://todo-link-inspector:7870` dan token yang sama, lalu redeploy bot. Lokal tanpa Docker: `bun x playwright-core install chromium` lalu `LINK_INSPECTOR_TOKEN=… bun run inspector`.
+
+| Variabel | Default | Fungsi |
+| :--- | :--- | :--- |
+| `LINK_CHECK_ENABLED` | `false` | Nyalakan cek link |
+| `LINK_INSPECTOR_URL` / `LINK_INSPECTOR_TOKEN` | — | Alamat & token inspector (token minimal 16 karakter) |
+| `GOOGLE_SAFE_BROWSING_API_KEY` | — | Opsional; gratis untuk pemakaian non-komersial |
+| `LINK_CHECK_ALLOWLIST` | — | Domain tambahan yang tidak perlu dicek |
+| `LINK_CHECK_MAX_LINKS` / `LINK_CHECK_TIMEOUT_MS` | `2` / `30000` | Maksimal link per pesan & batas waktu inspector |
+| `LLM_LINK_BUDGET_MS` | `60000` | Total waktu LLM untuk menilai satu halaman |
+| `LINK_CHECK_PROXY_URL` (inspector) | — | Proxy HTTP upstream opsional |
+
+Antigravity butuh sekitar 15–40 detik per halaman (teks + screenshot). Jika bridge dipakai di `LLM_CHAIN_LINK`, naikkan juga `ANTIGRAVITY_TIMEOUT_MS` di proses bridge (pm2) ke sekitar `45000`; bot otomatis menunggu sampai 45 detik untuk operasi ini.
 
 ### 3. Migrasi Database
 Terapkan skema tabel ke PostgreSQL:

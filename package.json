@@ -31,6 +31,7 @@
   "scripts": {
     "start": "bun run db:push && bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
+    "inspector": "bun run src/link-inspector/main.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
@@ -51,6 +52,7 @@
     "drizzle-orm": "^0.45.3",
     "file-type": "^22.1.1",
     "pino": "^10.3.1",
+    "playwright-core": "1.64.0",
     "postgres": "^3.4.9",
     "qrcode-terminal": "^0.12.0",
     "sharp": "^0.35.5"

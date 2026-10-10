@@ -116,7 +116,7 @@ const COMMON_TLDS = new Set([
   'com', 'net', 'org', 'id', 'io', 'me', 'info', 'biz', 'co', 'app', 'ly', 'site', 'online', 'store', 'shop',
   'live', 'space', 'link', 'cc', 'asia', 'dev', 'ai', 'gov', 'edu', 'my', 'sg', 'us', 'uk', 'ee', 'gl', 'to', 'at',
 ]);
-const BRAND_DOMAINS: Record<string, string[]> = {
+export const BRAND_DOMAINS: Readonly<Record<string, readonly string[]>> = {
   bca: ['bca.co.id', 'klikbca.com'],
   bri: ['bri.co.id'],
   bni: ['bni.co.id'],
@@ -173,17 +173,40 @@ function isUnderDomain(host: string, domain: string): boolean {
   return host === domain || host.endsWith(`.${domain}`);
 }
 
-function linkSignals(normalized: string): Signal[] {
-  const signals: Signal[] = [];
-  for (const match of normalized.matchAll(URL_PATTERN)) {
+interface LinkCandidate {
+  raw: string;
+  hasScheme: boolean;
+  host: string;
+  url: URL;
+}
+
+function scanLinks(text: string): LinkCandidate[] {
+  const links: LinkCandidate[] = [];
+  for (const match of text.matchAll(URL_PATTERN)) {
     const raw = match[0].replace(/[).,!?]+$/, '');
-    const hasScheme = /^https?:\/\//.test(raw) || raw.startsWith('www.');
+    const hasScheme = /^https?:\/\//i.test(raw) || /^www\./i.test(raw);
     const parsed = hostOf(raw);
     if (!parsed) continue;
     const { host, url } = parsed;
     const tld = host.split('.').pop() ?? '';
     if (!hasScheme && !COMMON_TLDS.has(tld) && !SUSPICIOUS_TLDS.has(tld) && !SHORTENERS.has(host)) continue;
+    links.push({ raw, hasScheme, host, url });
+  }
+  return links;
+}
 
+/** Links in a message as absolute URLs (scheme-less ones get http://), using the same rules as the risk check. */
+export function extractLinkCandidates(text: string): string[] {
+  const cleaned = text.normalize('NFKC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '');
+  return [...new Set(scanLinks(cleaned).map((link) => link.url.href))];
+}
+
+const HTTP_REASON = 'Link tanpa HTTPS';
+
+function linkSignals(normalized: string): Signal[] {
+  const signals: Signal[] = [];
+  for (const { raw, hasScheme, host, url } of scanLinks(normalized)) {
+    const tld = host.split('.').pop() ?? '';
     if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) {
       signals.push({ category: 'phishing', weight: 3, reason: 'Link memakai alamat IP, bukan nama situs resmi' });
     }
@@ -215,7 +238,7 @@ function linkSignals(normalized: string): Signal[] {
       }
     }
     if (url.protocol === 'http:' && hasScheme && raw.startsWith('http://')) {
-      signals.push({ category: 'phishing', weight: 1, reason: 'Link tanpa HTTPS' });
+      signals.push({ category: 'phishing', weight: 1, reason: HTTP_REASON });
     }
   }
   return signals;
@@ -281,4 +304,99 @@ export function assessMediaRisk(input: {
   if (!input.vision?.isSuspicious) return local;
   const category = input.vision.riskCategory && input.vision.riskCategory !== 'none' ? input.vision.riskCategory : 'scam';
   return mergeRisk(local, { category, reason: input.vision.safetyReason });
+}
+
+export interface PageRiskInput {
+  requestedUrl: string;
+  finalUrl: string | null;
+  redirectChain: string[];
+  title: string;
+  description: string;
+  forms: { total: number; password: number; otp: number; card: number; pin: number; externalActionHosts: string[] };
+  downloadFilename: string | null;
+  tlsError: boolean;
+  /** The link (or a redirect) resolved to a private / loopback / metadata address and was refused. */
+  internalTarget: boolean;
+  safeBrowsing: Array<'phishing' | 'malware'>;
+}
+
+/** Brand names as they appear in page titles. Matched case-sensitively where the plain word is common ("dana"). */
+const BRAND_PAGE_PATTERNS: Record<string, RegExp> = {
+  bca: /\b(?:klik\s?bca|bca|m-?bca|mybca)\b/i,
+  bri: /\b(?:bri|brimo)\b/i,
+  bni: /\bbni\b/i,
+  btn: /\bbtn\b/i,
+  mandiri: /\b(?:bank\s+mandiri|livin)\b/i,
+  dana: /\bDANA\b/,
+  ovo: /\bovo\b/i,
+  gopay: /\b(?:gopay|gojek)\b/i,
+  shopee: /\bshopee\b/i,
+  tokopedia: /\btokopedia\b/i,
+  bpjs: /\bbpjs\b/i,
+  pln: /\bpln\b/i,
+  jnt: /\bj\s?&\s?t\b/i,
+  jne: /\bjne\b/i,
+};
+const DANGEROUS_DOWNLOAD = /\.(?:apk|xapk|apks|exe|msi|scr|bat|cmd|jar|vbs)$/i;
+const GAMBLING_RULES = TEXT_RULES.filter((rule) => rule.category === 'gambling');
+
+/**
+ * Local verdict for a visited page (redirects, forms, downloads, Safe Browsing). Only the title and
+ * description are matched against gambling rules: body text of news about judol would false-flag,
+ * so the body is left to the LLM. Plain http only counts when a password form is served over it.
+ */
+export function assessPageRisk(input: PageRiskInput): RiskAssessment {
+  const signals: Signal[] = [];
+  const finalUrl = input.finalUrl ?? input.requestedUrl;
+  const visited = [...new Set([input.requestedUrl, ...input.redirectChain, finalUrl])];
+  for (const url of visited) {
+    signals.push(...linkSignals(normalize(url)).filter((signal) => signal.reason !== HTTP_REASON));
+  }
+
+  for (const category of new Set(input.safeBrowsing)) {
+    signals.push({
+      category,
+      weight: FLAG_THRESHOLD,
+      reason: category === 'malware' ? 'Google Safe Browsing menandainya sebagai situs malware' : 'Google Safe Browsing menandainya sebagai situs penipuan',
+    });
+  }
+
+  if (input.downloadFilename && DANGEROUS_DOWNLOAD.test(input.downloadFilename)) {
+    signals.push({ category: 'malware', weight: 3, reason: 'Halamannya langsung mengunduh file aplikasi' });
+  }
+
+  const finalHost = hostOf(finalUrl)?.host ?? '';
+  const heading = `${input.title}\n${input.description}`;
+  const { forms } = input;
+  const asksSecret = forms.otp + forms.card + forms.pin > 0;
+  if (forms.password > 0 || asksSecret) {
+    for (const [brand, pattern] of Object.entries(BRAND_PAGE_PATTERNS)) {
+      if (pattern.test(heading) && !BRAND_DOMAINS[brand]?.some((domain) => isUnderDomain(finalHost, domain))) {
+        signals.push({ category: 'phishing', weight: 3, reason: `Halaman login mengaku ${brand.toUpperCase()} tapi bukan situs resminya` });
+        break;
+      }
+    }
+  }
+  if (asksSecret) signals.push({ category: 'phishing', weight: 2, reason: 'Halamannya meminta OTP / PIN / nomor kartu' });
+  else if (forms.password > 0) signals.push({ category: 'phishing', weight: 1, reason: 'Halamannya meminta password' });
+  if (forms.password > 0 && finalUrl.startsWith('http://')) {
+    signals.push({ category: 'phishing', weight: 2, reason: 'Password dikirim tanpa HTTPS' });
+  }
+  if (forms.externalActionHosts.length > 0) {
+    signals.push({ category: 'phishing', weight: 1, reason: 'Isian form dikirim ke situs lain' });
+  }
+  if (input.tlsError) signals.push({ category: 'phishing', weight: 1, reason: 'Sertifikat HTTPS-nya tidak valid' });
+  if (input.internalTarget) {
+    signals.push({
+      category: 'phishing',
+      weight: FLAG_THRESHOLD,
+      reason: 'Link-nya mengarah ke alamat jaringan internal (misalnya router atau perangkat lokal)',
+    });
+  }
+
+  const normalizedHeading = normalize(heading);
+  const headingVariants = [normalizedHeading, deLeet(normalizedHeading)];
+  signals.push(...GAMBLING_RULES.filter((rule) => headingVariants.some((v) => rule.pattern.test(v))));
+
+  return summarize(signals, false);
 }

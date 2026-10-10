@@ -449,6 +449,47 @@ export async function confirmRiskTask(
   return updated[0] ?? null;
 }
 
+const HOLDABLE_STATUSES = ['pending', 'pending_deadline', 'pending_confirmation'];
+
+/**
+ * Puts a not-yet-finished task on hold after a late risk signal (the link check runs after the task
+ * was saved). Resolved, cancelled or already-held tasks are left alone and return null.
+ */
+export async function holdTaskForRisk(
+  db: any,
+  taskId: number,
+  userJid: string,
+  rawInput?: string | null
+): Promise<Task | null> {
+  const existing = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.userJid, userJid), inArray(tasks.status, HOLDABLE_STATUSES)))
+    .limit(1);
+  const current: Task | undefined = existing[0];
+  if (!current) return null;
+
+  const updated = await db
+    .update(tasks)
+    .set({ status: 'pending_risk_confirmation', updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, current.status)))
+    .returning();
+
+  if (updated[0]) {
+    await db.insert(taskHistory).values({
+      taskId: updated[0].id,
+      userJid,
+      changeType: 'hold_risk',
+      fieldChanged: 'status',
+      oldValue: current.status,
+      newValue: 'pending_risk_confirmation',
+      rawInput: rawInput ?? null,
+    });
+  }
+
+  return updated[0] ?? null;
+}
+
 /**
  * Finds the latest task awaiting user confirmation (same-schedule or risk) for context resolution fallback
  */

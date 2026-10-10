@@ -1,0 +1,25 @@
+# Isolated headless Chromium that opens links for the bot's link check (src/link-inspector).
+# Run it as a separate service with no published ports; only the bot should reach it.
+FROM oven/bun:1-debian
+
+WORKDIR /app
+# Chromium (crashpad) needs writable config/cache dirs; the root filesystem is read-only at runtime.
+ENV NODE_ENV=production \
+    TZ=Asia/Jakarta \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    XDG_CONFIG_HOME=/tmp/.config \
+    XDG_CACHE_HOME=/tmp/.cache
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+RUN bun x playwright-core install --with-deps --no-shell chromium \
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod -R a+rX /ms-playwright
+
+COPY src/link-inspector ./src/link-inspector
+
+RUN useradd --create-home --uid 10001 inspector
+USER inspector
+
+EXPOSE 7870
+CMD ["bun", "run", "src/link-inspector/main.ts"]

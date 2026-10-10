@@ -16,6 +16,7 @@ const OPERATIONS: readonly Operation[] = [
   'reminder_message',
   'morning_motivation',
   'vision_screen',
+  'link_review',
 ];
 
 const OPERATION_ENV: Record<Operation, string> = {
@@ -24,6 +25,7 @@ const OPERATION_ENV: Record<Operation, string> = {
   reminder_message: 'LLM_CHAIN_REMINDER',
   morning_motivation: 'LLM_CHAIN_MORNING',
   vision_screen: 'LLM_CHAIN_VISION',
+  link_review: 'LLM_CHAIN_LINK',
 };
 
 const BUILTIN_CHAIN: Record<Operation, string> = {
@@ -32,7 +34,13 @@ const BUILTIN_CHAIN: Record<Operation, string> = {
   reminder_message: 'gemini,antigravity,local',
   morning_motivation: 'gemini,local',
   vision_screen: 'gemini,local',
+  link_review: 'gemini,antigravity,local',
 };
+
+/** Operations that send images, so every provider in their chain must support vision. */
+export function isVisionOperation(op: Operation): boolean {
+  return op === 'vision_screen' || op === 'link_review';
+}
 
 const THINKING_LEVELS = new Set(['MINIMAL', 'LOW', 'MEDIUM', 'HIGH']);
 
@@ -41,6 +49,8 @@ export interface LlmConfig {
   explicit: Record<Operation, boolean>;
   budgetMs: number;
   visionBudgetMs: number;
+  /** link_review runs after the reply is sent, so it gets its own, longer budget. */
+  linkBudgetMs: number;
   maxRetries: number;
   maxInputChars: number;
   minAttemptMs: number;
@@ -63,7 +73,7 @@ export interface LlmConfig {
   toJSON(): unknown;
 }
 
-function readInt(env: Record<string, string | undefined>, key: string, fallback: number, min: number, max: number): number {
+export function readInt(env: Record<string, string | undefined>, key: string, fallback: number, min: number, max: number): number {
   const raw = env[key];
   if (raw === undefined || raw.trim() === '') return fallback;
   if (!/^\d+$/.test(raw.trim())) {
@@ -124,7 +134,7 @@ export function isPrivateHost(rawHost: string): boolean {
 }
 
 /** Accepts allowlist entries written as bare hosts, host:port, or full URLs (quotes tolerated). */
-function normalizeAllowlistEntry(entry: string): string {
+export function normalizeAllowlistEntry(entry: string): string {
   const cleaned = entry.trim().replace(/^["']|["']$/g, '').trim().toLowerCase();
   if (!cleaned) return '';
   try {
@@ -215,12 +225,13 @@ export function loadLlmConfig(env: Record<string, string | undefined>): LlmConfi
     const isExplicit = Boolean(source);
     explicit[op] = isExplicit;
 
-    if (op === 'vision_screen') {
+    if (isVisionOperation(op)) {
       const unsupported = ids.filter((id) => !supportsVision(id, openaiVision));
       if (unsupported.length > 0) {
         if (specific) {
+          const envName = OPERATION_ENV[op];
           throw new LlmConfigError(
-            `${label}: ${unsupported.join(', ')} tidak mendukung vision. Hapus dari LLM_CHAIN_VISION (contoh: LLM_CHAIN_VISION=gemini,local).`
+            `${label}: ${unsupported.join(', ')} tidak mendukung vision. Hapus dari ${envName} (contoh: ${envName}=gemini,local).`
           );
         }
         ids = ids.filter((id) => supportsVision(id, openaiVision));
@@ -267,6 +278,7 @@ export function loadLlmConfig(env: Record<string, string | undefined>): LlmConfi
     explicit,
     budgetMs,
     visionBudgetMs: readInt(env, 'LLM_VISION_BUDGET_MS', slowVision ? budgetMs : Math.min(budgetMs, 8000), 100, 120_000),
+    linkBudgetMs: readInt(env, 'LLM_LINK_BUDGET_MS', 60_000, 1000, 180_000),
     maxRetries: readInt(env, 'LLM_MAX_RETRIES', 0, 0, 3),
     maxInputChars: readInt(env, 'LLM_MAX_INPUT_CHARS', 2000, 200, 20_000),
     minAttemptMs: 250,
