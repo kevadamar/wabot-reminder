@@ -125,6 +125,71 @@ describe('Seam 1: NLP Intent & Deadline Extraction', () => {
     expect(r3.deadline?.getUTCHours()).toBe(7);
   });
 
+  it('should accurately handle Indonesian compound days, "malem", and midnight / noon times', async () => {
+    // baseNow is Saturday, 14 Nov 2026, 15:33 WIB (08:33 UTC)
+    const saturdayNow = new Date('2026-11-14T08:33:00.000Z');
+
+    // 1. "besok minggu jam 12 siang bales email yg pending" -> Sunday 15 Nov, 12:00 WIB (05:00 UTC)
+    const r1 = await parseTaskMessage('besok minggu jam 12 siang bales email yg pending', {
+      now: saturdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r1.isTask).toBe(true);
+    expect(r1.taskTitle).toBe('bales email yg pending');
+    expect(r1.deadline?.toISOString()).toBe('2026-11-15T05:00:00.000Z');
+
+    // 2. "besok sabtu jam 12 siang bales email yg pending" -> Sunday 15 Nov, 12:00 WIB (05:00 UTC)
+    const r2 = await parseTaskMessage('besok sabtu jam 12 siang bales email yg pending', {
+      now: saturdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r2.isTask).toBe(true);
+    expect(r2.taskTitle).toBe('bales email yg pending');
+    expect(r2.deadline?.toISOString()).toBe('2026-11-15T05:00:00.000Z');
+
+    // 3. "besok minggu jam 12 malem bales email yg pending" -> Sunday 15 Nov, 00:00 WIB (14 Nov 17:00 UTC)
+    const r3 = await parseTaskMessage('besok minggu jam 12 malem bales email yg pending', {
+      now: saturdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r3.isTask).toBe(true);
+    expect(r3.taskTitle).toBe('bales email yg pending');
+    expect(r3.deadline?.toISOString()).toBe('2026-11-14T17:00:00.000Z');
+
+    // 4. "besok jam 12 malem bales email yg pending"
+    const r4 = await parseTaskMessage('besok jam 12 malem bales email yg pending', {
+      now: saturdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r4.isTask).toBe(true);
+    expect(r4.taskTitle).toBe('bales email yg pending');
+    expect(r4.deadline?.toISOString()).toBe('2026-11-14T17:00:00.000Z');
+
+    // 5. "besok jam 1 malem bales email yg pending" -> 01:00 WIB (14 Nov 18:00 UTC)
+    const r5 = await parseTaskMessage('besok jam 1 malem bales email yg pending', {
+      now: saturdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r5.isTask).toBe(true);
+    expect(r5.taskTitle).toBe('bales email yg pending');
+    expect(r5.deadline?.toISOString()).toBe('2026-11-14T18:00:00.000Z');
+
+    // 6. "besok jam 7 malem bales email yg pending" -> 19:00 WIB (15 Nov 12:00 UTC)
+    const r6 = await parseTaskMessage('besok jam 7 malem bales email yg pending', {
+      now: saturdayNow,
+      timezone: 'Asia/Jakarta',
+      geminiClient: null,
+    });
+    expect(r6.isTask).toBe(true);
+    expect(r6.taskTitle).toBe('bales email yg pending');
+    expect(r6.deadline?.toISOString()).toBe('2026-11-15T12:00:00.000Z');
+  });
+
   it('should parse Indonesian day of week forward and recognize Indonesian month names', async () => {
     // Current time: Thursday, Oct 1, 2026, 13:00 WIB
     const thursdayNow = new Date('2026-10-01T06:00:00.000Z');

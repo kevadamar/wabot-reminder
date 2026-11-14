@@ -337,7 +337,7 @@ ${
     {
       system,
       userContent: delimitUserText(facts, getLlmConfig().maxInputChars),
-      maxOutputTokens: 512,
+      maxOutputTokens: 1024,
     },
     (text) => cleanModelText(text, 1200),
     localMessage,

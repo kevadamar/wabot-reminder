@@ -113,6 +113,7 @@ export function formatDateTime(date: Date, timezone = 'Asia/Jakarta'): string {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
+      timeZoneName: 'short',
     });
   } catch {
     return date.toISOString();
