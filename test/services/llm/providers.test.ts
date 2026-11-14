@@ -226,6 +226,17 @@ describe('Antigravity provider', () => {
     expect(err.detail).toBe('tool_denied:command');
   });
 
+  it('treats bridge timeout (504) as timeout kind so the chain does not retry it', async () => {
+    const fetchImpl = async () => Response.json({ error: 'timeout' }, { status: 504 });
+    const provider = createAntigravityProvider({ url: 'http://10.0.0.5:7860', token: '', timeoutMs: 1000, fetchImpl });
+    const err = await provider
+      .generate({ operation: 'affirmation', system: 's', userContent: 'u', maxOutputTokens: 10, signal })
+      .catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.status).toBe(504);
+    expect(err.detail).toBe('timeout');
+  });
+
   it('passes the bridge token usage through', async () => {
     const fetchImpl = async () =>
       Response.json({ text: 'ok', usage: { promptTokens: 16392, outputTokens: 18, totalTokens: 16410 } });

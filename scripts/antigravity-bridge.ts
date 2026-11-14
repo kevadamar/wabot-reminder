@@ -35,6 +35,7 @@ const IMAGE_TYPES: Record<string, { ext: string; matches: (bytes: Buffer) => boo
 
 export interface BridgeDeps {
   token: string;
+  model?: string;
   maxBodyBytes: number;
   maxPromptChars: number;
   maxImageBytes: number;
@@ -230,7 +231,10 @@ async function processRequest(req: Request, url: URL, deps: BridgeDeps, trace: R
   deps.state.inFlight += 1;
   let imageDir: string | null = null;
   try {
-    const command = ['agy', '-p', `${NO_TOOLS_TEXT}\n\n${prompt}`, '--output-format', 'json'];
+    const command = ['agy', '-p', `${NO_TOOLS_TEXT}\n\n${prompt}`, '--output-format', 'json', '--disable-slash-commands'];
+    if (deps.model) {
+      command.push('--model', deps.model);
+    }
     if (images.length > 0) {
       imageDir = await mkdtemp(join(tmpdir(), 'agy-vision-'));
       const paths: string[] = [];
@@ -273,6 +277,9 @@ async function processRequest(req: Request, url: URL, deps: BridgeDeps, trace: R
     }
     return Response.json(parsed.usage ? { text: parsed.text, usage: parsed.usage } : { text: parsed.text });
   } catch {
+    if (req.signal.aborted) {
+      return Response.json({ error: 'client_aborted' }, { status: 499 });
+    }
     return Response.json({ error: 'timeout' }, { status: 504 });
   } finally {
     deps.state.inFlight -= 1;
@@ -285,7 +292,8 @@ if (import.meta.main) {
   if (!token) {
     console.warn('⚠️ ANTIGRAVITY_BRIDGE_TOKEN kosong. Pasang token sebelum bridge bisa dijangkau dari container.');
   }
-  const processTimeoutMs = Number(process.env.ANTIGRAVITY_TIMEOUT_MS || 25_000);
+  const model = process.env.ANTIGRAVITY_MODEL?.trim() || 'gemini-3.8-flash-low';
+  const processTimeoutMs = Number(process.env.ANTIGRAVITY_TIMEOUT_MS || 30_000);
   const logPayloads = process.env.BRIDGE_LOG_PAYLOADS?.trim().toLowerCase() === 'true';
   const payloadMaxChars = Number(process.env.BRIDGE_LOG_PAYLOAD_MAX_CHARS || 2000);
   const state = { inFlight: 0 };
@@ -297,6 +305,7 @@ if (import.meta.main) {
     async fetch(req) {
       return handleBridgeRequest(req, {
         token,
+        model: model || undefined,
         maxBodyBytes: MAX_BODY_BYTES,
         maxPromptChars: MAX_PROMPT_CHARS,
         maxImageBytes: MAX_IMAGE_BYTES,

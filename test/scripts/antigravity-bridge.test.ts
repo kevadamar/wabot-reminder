@@ -195,10 +195,48 @@ describe('Antigravity bridge', () => {
         },
       }));
       expect(command[command.indexOf('--output-format') + 1]).toBe('json');
+      expect(command).toContain('--disable-slash-commands');
       const prompt = command[command.indexOf('-p') + 1]!;
       expect(prompt).toContain('besok revamp kantor-contoh.id');
       expect(prompt).toMatch(/jangan menjalankan perintah/i);
       expect(command).not.toContain('--dangerously-skip-permissions');
+    });
+
+    it('passes --model when specified in deps', async () => {
+      let command: string[] = [];
+      await handleBridgeRequest(post('{"prompt":"halo"}', auth), deps({
+        model: 'gemini-3.8-flash-low',
+        spawn: (cmd) => {
+          command = cmd;
+          return agyJson({ status: 'SUCCESS', response: 'ok' });
+        },
+      }));
+      expect(command).toContain('--model');
+      expect(command[command.indexOf('--model') + 1]).toBe('gemini-3.8-flash-low');
+    });
+
+    it('returns 499 client_aborted when client aborts the request', async () => {
+      const controller = new AbortController();
+      const req = new Request('http://bridge.local/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth },
+        body: JSON.stringify({ prompt: 'halo' }),
+        signal: controller.signal,
+      });
+      const promise = handleBridgeRequest(req, deps({
+        processTimeoutMs: 10_000,
+        spawn: (_command, options) => ({
+          stdout: new ReadableStream(),
+          stderr: new ReadableStream(),
+          exited: new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(new Error('aborted')));
+          }),
+        }),
+      }));
+      controller.abort();
+      const response = await promise;
+      expect(response.status).toBe(499);
+      expect(await response.json()).toEqual({ error: 'client_aborted' });
     });
 
     it('returns the response text and token usage', async () => {
