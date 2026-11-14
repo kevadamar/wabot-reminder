@@ -23,8 +23,17 @@ export interface ProviderOverride {
 /** link_review runs in the background after the reply, so providers may take longer on page text + screenshot. */
 function geminiTimeout(op: Operation, cfg: LlmConfig): number {
   if (op === 'link_review') return Math.max(cfg.gemini.timeoutMs, 15_000);
-  if (isVisionOperation(op)) return Math.max(cfg.gemini.timeoutMs, 4000);
+  if (isVisionOperation(op)) return Math.min(cfg.gemini.timeoutMs, 8000);
   return cfg.gemini.timeoutMs;
+}
+
+function antigravityTimeout(op: Operation, cfg: LlmConfig): number {
+  if (op === 'link_review') return Math.max(cfg.antigravity.timeoutMs, 45_000);
+  // For interactive WhatsApp operations (nlp_parse, affirmation, reminder), cap at 5s to prevent long blocking
+  if (op === 'nlp_parse' || op === 'affirmation' || op === 'reminder_message') {
+    return Math.min(cfg.antigravity.timeoutMs, 5000);
+  }
+  return cfg.antigravity.timeoutMs;
 }
 
 export function providersForOperation(op: Operation, override?: ProviderOverride): LlmProvider[] {
@@ -87,13 +96,13 @@ export function providersForOperation(op: Operation, override?: ProviderOverride
       continue;
     }
     if (id === 'antigravity') {
-      const url = config.antigravityBridgeUrl || cfg.antigravity.url;
+      const url = config.antigravityBridgeUrl;
       if (!url) continue;
       providers.push(
         createAntigravityProvider({
           url,
           token: config.antigravityBridgeToken || cfg.reveal('antigravity'),
-          timeoutMs: op === 'link_review' ? Math.max(cfg.antigravity.timeoutMs, 45_000) : cfg.antigravity.timeoutMs,
+          timeoutMs: antigravityTimeout(op, cfg),
         })
       );
     }

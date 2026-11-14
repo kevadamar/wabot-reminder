@@ -8,6 +8,7 @@ import {
   boolean,
   smallint,
   date,
+  jsonb,
   index,
   uniqueIndex,
   type AnyPgColumn,
@@ -207,6 +208,40 @@ export const botSettings = pgTable('bot_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const llmCallRecords = pgTable(
+  'llm_call_records',
+  {
+    id: varchar('id', { length: 64 }).primaryKey(),
+    chainId: varchar('chain_id', { length: 64 }).notNull(),
+    seq: integer('seq').notNull(),
+    at: timestamp('at', { withTimezone: true }).notNull(),
+    operation: varchar('operation', { length: 64 }).notNull(),
+    provider: varchar('provider', { length: 64 }).notNull(),
+    model: varchar('model', { length: 128 }),
+    outcome: varchar('outcome', { length: 64 }).notNull(),
+    durationMs: integer('duration_ms').notNull(),
+    httpStatus: integer('http_status'),
+    errorDetail: text('error_detail'),
+    providerRequestId: varchar('provider_request_id', { length: 128 }),
+    promptTokens: integer('prompt_tokens'),
+    outputTokens: integer('output_tokens'),
+    totalTokens: integer('total_tokens'),
+    systemChars: integer('system_chars').default(0).notNull(),
+    userChars: integer('user_chars').default(0).notNull(),
+    imageCount: integer('image_count').default(0).notNull(),
+    imageBytes: integer('image_bytes').default(0).notNull(),
+    responseChars: integer('response_chars'),
+    payload: jsonb('payload').$type<{ system: string; user: string; response: string | null } | null>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_llm_call_records_at').on(table.at),
+    index('idx_llm_call_records_chain_id').on(table.chainId),
+    index('idx_llm_call_records_operation').on(table.operation),
+    index('idx_llm_call_records_provider').on(table.provider),
+  ]
+);
+
 export type UserSetting = typeof userSettings.$inferSelect;
 export type InsertUserSetting = typeof userSettings.$inferInsert;
 
@@ -228,3 +263,5 @@ export type TelemetryHourly = typeof telemetryHourly.$inferSelect;
 export type TelemetryEvent = typeof telemetryEvents.$inferSelect;
 export type BotSetting = typeof botSettings.$inferSelect;
 export type InsertBotSetting = typeof botSettings.$inferInsert;
+export type LlmCallRecordRow = typeof llmCallRecords.$inferSelect;
+export type InsertLlmCallRecordRow = typeof llmCallRecords.$inferInsert;

@@ -42,7 +42,8 @@ export function kindFromStatus(status: number, hasRetryAfter: boolean): ErrorKin
   if (status === 401 || status === 403) return 'auth';
   if (status === 402) return 'quota_exhausted';
   if (status === 429) return hasRetryAfter ? 'rate_limited' : 'quota_exhausted';
-  if (status === 408 || status === 529 || status >= 500) return 'server_error';
+  if (status === 408 || status === 504 || status === 524) return 'timeout';
+  if (status === 529 || status >= 500) return 'server_error';
   if (status >= 400) return 'bad_request';
   return 'server_error';
 }

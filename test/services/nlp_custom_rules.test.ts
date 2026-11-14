@@ -32,7 +32,7 @@ describe('NLP Custom Configurable Rules', () => {
 
     const result = await parseTaskMessage('besok bimbingan skripsi', {
       now: baseNow,
-      geminiClient: null,
+      providers: [],
       customRules,
     });
 

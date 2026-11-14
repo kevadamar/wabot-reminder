@@ -34,7 +34,7 @@ export const LLM_HTML = `<!doctype html>
         <div><p class="index">01</p><h2 id="llm-summary-title">Ringkasan call terbaru</h2></div>
         <span id="payload-mode" class="status">—</span>
       </div>
-      <p class="section-desc">Setiap percobaan ke provider (API maupun Antigravity bridge) tercatat di sini, termasuk provider yang dilewati dan fallback ke parser lokal. Data disimpan di memori (maks 300 call terakhir) dan hilang saat bot restart. ID call sama dengan <code>X-Request-Id</code> di log bridge.</p>
+      <p class="section-desc">Setiap percobaan ke provider (API maupun Antigravity bridge) tercatat di sini, termasuk provider yang dilewati dan fallback ke parser lokal. Data dipersistensikan ke database PostgreSQL (retensi 14 hari) dan dimuat otomatis saat bot restart/deploy. ID call sama dengan <code>X-Request-Id</code> di log bridge.</p>
       <dl class="metric-strip" id="llm-summary">
         <div><dt>Total call</dt><dd id="sum-total">—</dd></div>
         <div><dt>Sukses</dt><dd id="sum-success">—</dd></div>
@@ -192,7 +192,7 @@ export const LLM_JS = `(() => {
     const body = el('llm-body');
     body.replaceChildren();
     if (!calls.length) {
-      const tr = document.createElement('tr'); const td = cell('Belum ada call LLM sejak bot terakhir dijalankan.'); td.colSpan = 10; tr.append(td); body.append(tr);
+      const tr = document.createElement('tr'); const td = cell('Belum ada riwayat call LLM tercatat.'); td.colSpan = 10; tr.append(td); body.append(tr);
       return;
     }
     for (const c of calls) {

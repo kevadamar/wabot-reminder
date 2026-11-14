@@ -212,7 +212,9 @@ export async function runChain<T>(
     return { value: local(), provider: 'local' };
   };
 
-  for (const provider of deps.providers) {
+  for (let i = 0; i < deps.providers.length; i++) {
+    const provider = deps.providers[i];
+    if (!provider) continue;
     if (!deps.breaker.allow(provider.id)) {
       deps.record(operation, provider.id, 'skipped_breaker_open');
       emit(provider.id, provider.model, 'skipped_breaker_open');
@@ -228,7 +230,12 @@ export async function runChain<T>(
         return fallback();
       }
 
-      const limitMs = Math.min(provider.timeoutMs, remaining);
+      // Reserve budget for remaining providers so the first provider cannot starve subsequent ones
+      const subsequentProvidersCount = deps.providers.length - i - 1;
+      const reservedForSubsequent = subsequentProvidersCount * deps.minAttemptMs;
+      const budgetForAttempt = Math.max(deps.minAttemptMs, remaining - reservedForSubsequent);
+
+      const limitMs = Math.min(provider.timeoutMs, budgetForAttempt);
       const signal = AbortSignal.timeout(limitMs);
       const startedAt = performance.now();
       const id = nextId();

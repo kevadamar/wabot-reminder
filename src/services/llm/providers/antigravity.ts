@@ -42,7 +42,12 @@ export function createAntigravityProvider(options: {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
         const detail = await errorDetailFrom(response, [options.token]);
         const agentGaveNoAnswer = detail === 'empty_output' || detail?.startsWith('tool_denied');
-        const kind = agentGaveNoAnswer ? 'invalid_output' : kindFromStatus(response.status, retryAfter !== undefined);
+        const isTimeout = response.status === 504 || response.status === 408 || detail === 'timeout';
+        const kind = agentGaveNoAnswer
+          ? 'invalid_output'
+          : isTimeout
+            ? 'timeout'
+            : kindFromStatus(response.status, retryAfter !== undefined);
         throw new LlmError(kind, response.status, retryAfter, {
           detail,
           providerRequestId,

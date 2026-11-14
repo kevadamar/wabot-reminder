@@ -2,6 +2,7 @@ import { lt, sql } from 'drizzle-orm';
 import {
   dailyDigestDeliveries,
   dailyMotivations,
+  llmCallRecords,
   telemetryEvents,
   telemetryHourly,
 } from '../db/schema.js';
@@ -248,6 +249,9 @@ export async function flushTelemetry(
         );
         await tx.delete(dailyMotivations).where(
           lt(dailyMotivations.createdAt, new Date(now.getTime() - 45 * 24 * 60 * 60 * 1000))
+        );
+        await tx.delete(llmCallRecords).where(
+          lt(llmCallRecords.at, new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000))
         );
       }
     });

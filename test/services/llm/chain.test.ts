@@ -264,4 +264,40 @@ describe('LLM chain', () => {
     breaker.onSuccess('openai');
     expect(breaker.allow('openai')).toBe(true);
   });
+
+  it('does not retry when provider fails with gateway timeout (504) and fails over immediately to next provider', async () => {
+    let antigravityCalls = 0;
+    let geminiCalls = 0;
+    const records: LlmCallRecord[] = [];
+
+    const result = await runChain(
+      'nlp_parse',
+      { system: 'sys', userContent: 'user', maxOutputTokens: 20 },
+      (text) => text,
+      () => 'local',
+      deps(
+        [
+          provider('antigravity', async () => {
+            antigravityCalls += 1;
+            throw new LlmError('timeout', 504, undefined, { detail: 'timeout' });
+          }),
+          provider('gemini', async () => {
+            geminiCalls += 1;
+            return { text: 'gemini-success' };
+          }),
+        ],
+        {
+          maxRetries: 2, // Even with retries enabled, timeout is not retried
+          observe: (r) => records.push(r),
+        }
+      )
+    );
+
+    expect(antigravityCalls).toBe(1); // Only 1 attempt, no 25s retry!
+    expect(geminiCalls).toBe(1); // Fails over directly to Gemini
+    expect(result).toEqual({ value: 'gemini-success', provider: 'gemini' });
+    expect(records[0]?.outcome).toBe('timeout');
+    expect(records[0]?.httpStatus).toBe(504);
+    expect(records[1]?.outcome).toBe('success');
+  });
 });

@@ -1,10 +1,19 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach, afterAll } from 'bun:test';
 import { parseTaskMessage, cleanProfanity, isTimeOnlyExpression } from '../../src/services/nlp.js';
 import type { LlmProvider } from '../../src/services/llm/types.js';
 import { config } from '../../src/config/index.js';
 
 describe('Seam 1: NLP Intent & Deadline Extraction', () => {
   const baseNow = new Date('2026-09-26T03:00:00.000Z'); // 10:00 WIB
+  const savedBridgeUrl = config.antigravityBridgeUrl;
+
+  beforeEach(() => {
+    config.antigravityBridgeUrl = '';
+  });
+
+  afterAll(() => {
+    config.antigravityBridgeUrl = savedBridgeUrl;
+  });
 
   it('should ignore casual greetings and chatter (isTask: false)', async () => {
     const greetings = ['halo', 'Halo bot', 'selamat pagi', 'P', 'ping', 'makasih ya', 'assalamualaikum'];

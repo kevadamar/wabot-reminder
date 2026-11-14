@@ -7,6 +7,7 @@ import { startDashboardServer } from './dashboard/server.js';
 import { flushTelemetry, telemetry } from './services/telemetry.js';
 import { formatLlmStartupLog, getLlmConfig } from './config/llm.js';
 import { formatLinkReviewStartupLog, getLinkReviewConfig } from './config/link-review.js';
+import { hydrateLlmCallLog, llmCallLog } from './services/llm/call-log.js';
 
 async function bootstrap() {
   console.log('🚀 Memulai WhatsApp To-Do Reminder Bot...');
@@ -30,6 +31,12 @@ async function bootstrap() {
     console.log('✅ Terhubung ke database PostgreSQL.');
     await initDb();
     console.log('✅ Skema tabel database PostgreSQL terverifikasi/diinisialisasi.');
+
+    llmCallLog.setDb(db);
+    const hydratedCount = await hydrateLlmCallLog(db);
+    if (hydratedCount > 0) {
+      console.log(`✅ ${hydratedCount} riwayat call LLM dimuat dari database ke dashboard.`);
+    }
   } catch (err) {
     console.error('❌ Gagal terhubung ke PostgreSQL atau inisialisasi tabel:', err);
     process.exit(1);

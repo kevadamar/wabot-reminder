@@ -242,6 +242,46 @@ export async function initDb() {
     );
   `;
 
+  await client`
+    CREATE TABLE IF NOT EXISTS llm_call_records (
+      id VARCHAR(64) PRIMARY KEY,
+      chain_id VARCHAR(64) NOT NULL,
+      seq INTEGER NOT NULL,
+      at TIMESTAMPTZ NOT NULL,
+      operation VARCHAR(64) NOT NULL,
+      provider VARCHAR(64) NOT NULL,
+      model VARCHAR(128),
+      outcome VARCHAR(64) NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      http_status INTEGER,
+      error_detail TEXT,
+      provider_request_id VARCHAR(128),
+      prompt_tokens INTEGER,
+      output_tokens INTEGER,
+      total_tokens INTEGER,
+      system_chars INTEGER DEFAULT 0 NOT NULL,
+      user_chars INTEGER DEFAULT 0 NOT NULL,
+      image_count INTEGER DEFAULT 0 NOT NULL,
+      image_bytes INTEGER DEFAULT 0 NOT NULL,
+      response_chars INTEGER,
+      payload JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    );
+  `;
+
+  await client`
+    CREATE INDEX IF NOT EXISTS idx_llm_call_records_at ON llm_call_records(at);
+  `;
+  await client`
+    CREATE INDEX IF NOT EXISTS idx_llm_call_records_chain_id ON llm_call_records(chain_id);
+  `;
+  await client`
+    CREATE INDEX IF NOT EXISTS idx_llm_call_records_operation ON llm_call_records(operation);
+  `;
+  await client`
+    CREATE INDEX IF NOT EXISTS idx_llm_call_records_provider ON llm_call_records(provider);
+  `;
+
   // Seed default bot settings if not already present
   const defaultNlpJson = JSON.stringify(DEFAULT_NLP_CUSTOM_RULES);
   const defaultAdminIg = config.adminInstagram || '@kevadamar';

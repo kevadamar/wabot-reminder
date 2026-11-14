@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { and, asc, desc, eq, gte, ilike, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import {
+  llmCallRecords,
   taskAttachments,
   taskHistory,
   taskMessages,
@@ -35,7 +36,7 @@ import {
 } from '../services/settings.js';
 import { parseLocalTask } from '../services/nlp.js';
 import { LLM_CSS, LLM_HTML, LLM_JS } from './llm-assets.js';
-import { llmCallLog, type LlmCallSummary } from '../services/llm/call-log.js';
+import { llmCallLog, rowToRecord, type LlmCallSummary } from '../services/llm/call-log.js';
 
 function matchesOutcomeGroup(call: LlmCallSummary, group: string): boolean {
   if (group === 'success') return call.outcome === 'success';
@@ -1040,6 +1041,9 @@ export function createDashboardHandler(options: {
   db?: any;
   sendReminder?: (taskId: number) => Promise<{ success: boolean; messageId?: string; error?: string }>;
 }): (request: Request) => Promise<Response> {
+  if (options.db) {
+    llmCallLog.setDb(options.db);
+  }
   const dispatch = async (request: Request, pathname: string, url: URL): Promise<Response> => {
     if (request.method === 'GET') {
       if (pathname === '/') {
@@ -1076,7 +1080,20 @@ export function createDashboardHandler(options: {
         return Response.json(listLlmCalls(url.searchParams), { headers: secureHeaders('application/json; charset=utf-8') });
       }
       if (pathname === '/api/llm-calls/detail') {
-        const call = llmCallLog.get(url.searchParams.get('id') || '');
+        const id = url.searchParams.get('id') || '';
+        let call = llmCallLog.get(id);
+        if (!call && options.db?.select) {
+          try {
+            const rows = await options.db
+              .select()
+              .from(llmCallRecords)
+              .where(eq(llmCallRecords.id, id))
+              .limit(1);
+            if (rows && rows.length > 0) {
+              call = rowToRecord(rows[0]);
+            }
+          } catch {}
+        }
         if (!call) {
           return Response.json({ error: 'CALL_NOT_FOUND' }, { status: 404, headers: secureHeaders('application/json; charset=utf-8') });
         }

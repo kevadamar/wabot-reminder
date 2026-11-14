@@ -110,8 +110,7 @@ export const SETTINGS_HTML = `<!doctype html>
               id="nlp-verbs-input"
               class="text-input textarea-input"
               rows="3"
-              placeholder="minum obat, coding, briefing, evaluasi, setor, rekap"
-            ></textarea>
+            >minum obat, minum vitamin, coding, code review, briefing, evaluasi, setor, nyetor, rekap, bimbingan, solat, shalat</textarea>
           </div>
 
           <div class="form-group">
@@ -122,9 +121,17 @@ export const SETTINGS_HTML = `<!doctype html>
             <textarea
               id="nlp-phrases-input"
               class="text-input textarea-input"
-              rows="6"
-              placeholder="ba'da isya => at 19:30&#10;ba'da maghrib => at 18:30&#10;subuh => at 04:30&#10;pulang kantor => at 17:00"
-            ></textarea>
+              rows="8"
+            >ba'da isya => at 19:30
+ba'da maghrib => at 18:30
+ba'da ashar => at 15:30
+ba'da dzuhur => at 12:30
+ba'da subuh => at 05:00
+subuh => at 04:30
+pulang kantor => at 17:00
+jam pulang kerja => at 17:00
+tengah malam => at 00:00
+siang bolong => at 12:00</textarea>
           </div>
 
           <div class="form-group">
@@ -134,7 +141,7 @@ export const SETTINGS_HTML = `<!doctype html>
               type="text"
               id="nlp-keywords-input"
               class="text-input"
-              placeholder="weekend, akhir pekan, subuh, fajar"
+              value="weekend, akhir pekan, subuh, fajar, senja, maghrib, isya, ashar, dzuhur"
             />
           </div>
 
@@ -145,7 +152,7 @@ export const SETTINGS_HTML = `<!doctype html>
               type="text"
               id="nlp-stopwords-input"
               class="text-input"
-              placeholder="tolong dong, tolong, dong, plis, please, ya"
+              value="tolong dong, tolong, dong, plis, please, ya, yah, bantu"
             />
           </div>
 
@@ -502,21 +509,54 @@ export const SETTINGS_JS = `(() => {
     }
   }
 
+  const DEFAULT_FORM_RULES = {
+    customTaskVerbs: [
+      'minum obat', 'minum vitamin', 'coding', 'code review', 'briefing',
+      'evaluasi', 'setor', 'nyetor', 'rekap', 'bimbingan', 'solat', 'shalat'
+    ],
+    customTimePhrases: [
+      { phrase: "ba'da isya", replacement: 'at 19:30' },
+      { phrase: "ba'da maghrib", replacement: 'at 18:30' },
+      { phrase: "ba'da ashar", replacement: 'at 15:30' },
+      { phrase: "ba'da dzuhur", replacement: 'at 12:30' },
+      { phrase: "ba'da subuh", replacement: 'at 05:00' },
+      { phrase: 'subuh', replacement: 'at 04:30' },
+      { phrase: 'pulang kantor', replacement: 'at 17:00' },
+      { phrase: 'jam pulang kerja', replacement: 'at 17:00' },
+      { phrase: 'tengah malam', replacement: 'at 00:00' },
+      { phrase: 'siang bolong', replacement: 'at 12:00' }
+    ],
+    customTimeKeywords: ['weekend', 'akhir pekan', 'subuh', 'fajar', 'senja', 'maghrib', 'isya', 'ashar', 'dzuhur'],
+    customStopwords: ['tolong dong', 'tolong', 'dong', 'plis', 'please', 'ya', 'yah', 'bantu']
+  };
+
   function populateNlpFields(rules) {
-    if (!rules) return;
+    const active = rules || DEFAULT_FORM_RULES;
     if (nlpVerbsInput) {
-      nlpVerbsInput.value = (rules.customTaskVerbs || []).join(', ');
+      const verbs = (active.customTaskVerbs && active.customTaskVerbs.length > 0)
+        ? active.customTaskVerbs
+        : DEFAULT_FORM_RULES.customTaskVerbs;
+      nlpVerbsInput.value = verbs.join(', ');
     }
     if (nlpPhrasesInput) {
-      nlpPhrasesInput.value = (rules.customTimePhrases || [])
+      const phrases = (active.customTimePhrases && active.customTimePhrases.length > 0)
+        ? active.customTimePhrases
+        : DEFAULT_FORM_RULES.customTimePhrases;
+      nlpPhrasesInput.value = phrases
         .map((r) => \`\${r.phrase} => \${r.replacement}\`)
         .join('\\n');
     }
     if (nlpKeywordsInput) {
-      nlpKeywordsInput.value = (rules.customTimeKeywords || []).join(', ');
+      const keywords = (active.customTimeKeywords && active.customTimeKeywords.length > 0)
+        ? active.customTimeKeywords
+        : DEFAULT_FORM_RULES.customTimeKeywords;
+      nlpKeywordsInput.value = keywords.join(', ');
     }
     if (nlpStopwordsInput) {
-      nlpStopwordsInput.value = (rules.customStopwords || []).join(', ');
+      const stopwords = (active.customStopwords && active.customStopwords.length > 0)
+        ? active.customStopwords
+        : DEFAULT_FORM_RULES.customStopwords;
+      nlpStopwordsInput.value = stopwords.join(', ');
     }
   }
 
@@ -797,11 +837,6 @@ export const SETTINGS_JS = `(() => {
   }
 
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', loadSettings);
-  }
-
-  loadSettings();
-})();
     refreshBtn.addEventListener('click', loadSettings);
   }
 
