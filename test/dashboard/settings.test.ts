@@ -2,7 +2,12 @@ import { describe, expect, it, beforeEach } from 'bun:test';
 import { createDashboardHandler } from '../../src/dashboard/server.js';
 import { db } from '../../src/db/index.js';
 import { botSettings } from '../../src/db/schema.js';
-import { getAdminInstagram, setAdminInstagram } from '../../src/services/settings.js';
+import {
+  getAdminInstagram,
+  setAdminInstagram,
+  getNlpCustomRules,
+  setNlpCustomRules,
+} from '../../src/services/settings.js';
 
 describe('Bot Settings Dashboard & API', () => {
   const snapshot = async () => ({
@@ -113,5 +118,88 @@ describe('Bot Settings Dashboard & API', () => {
 
     const retrieved = await getAdminInstagram(db);
     expect(retrieved).toBe('@my_awesome_admin');
+  });
+
+  it('serves /settings with HTML containing Section 02 NLP configuration controls', async () => {
+    const handler = createDashboardHandler({ username: 'admin', password: 'a-secure-password-123', snapshot, db });
+    const response = await handler(new Request('http://localhost/settings', { headers: authHeaders }));
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain('Aturan & Frasa Parser NLP (Bahasa Indonesia)');
+    expect(html).toContain('nlp-settings-form');
+    expect(html).toContain('nlp-verbs-input');
+    expect(html).toContain('nlp-phrases-input');
+    expect(html).toContain('nlp-keywords-input');
+    expect(html).toContain('nlp-stopwords-input');
+    expect(html).toContain('save-nlp-btn');
+    expect(html).toContain('reset-nlp-btn');
+    expect(html).toContain('nlp-test-btn');
+  });
+
+  it('GET /api/settings returns nlpRules and POST /api/settings persists custom rules', async () => {
+    const handler = createDashboardHandler({ username: 'admin', password: 'a-secure-password-123', snapshot, db });
+
+    // 1. Initial GET returns default nlpRules
+    const initialGet = await handler(new Request('http://localhost/api/settings', { headers: authHeaders }));
+    expect(initialGet.status).toBe(200);
+    const initialBody = (await initialGet.json()) as any;
+    expect(initialBody.nlpRules).toBeDefined();
+    expect(Array.isArray(initialBody.nlpRules.customTaskVerbs)).toBe(true);
+    expect(Array.isArray(initialBody.nlpRules.customTimePhrases)).toBe(true);
+
+    // 2. POST updates custom rules
+    const updateRes = await handler(
+      new Request('http://localhost/api/settings', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          nlpRules: {
+            customTaskVerbs: ['bimbingan skripsi', 'review pr'],
+            customTimePhrases: [{ phrase: "ba'da maghrib", replacement: 'at 18:30' }],
+            customTimeKeywords: ['subuh', 'senja'],
+            customStopwords: ['tolong dong', 'plis'],
+          },
+        }),
+      })
+    );
+
+    expect(updateRes.status).toBe(200);
+    const updateBody = (await updateRes.json()) as any;
+    expect(updateBody.success).toBe(true);
+    expect(updateBody.nlpRules.customTaskVerbs).toContain('bimbingan skripsi');
+    expect(updateBody.nlpRules.customTimePhrases).toEqual([{ phrase: "ba'da maghrib", replacement: 'at 18:30' }]);
+
+    // 3. Verify database read matches
+    const fromDb = await getNlpCustomRules(db, true);
+    expect(fromDb.customTaskVerbs).toContain('bimbingan skripsi');
+    expect(fromDb.customTimePhrases).toEqual([{ phrase: "ba'da maghrib", replacement: 'at 18:30' }]);
+  });
+
+  it('POST /api/settings/nlp-test executes local parser with custom rules', async () => {
+    const handler = createDashboardHandler({ username: 'admin', password: 'a-secure-password-123', snapshot, db });
+
+    const testRes = await handler(
+      new Request('http://localhost/api/settings/nlp-test', {
+        method: 'POST',
+        headers: { ...authHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          text: "besok ba'da isya bimbingan skripsi tolong dong",
+          nlpRules: {
+            customTaskVerbs: ['bimbingan skripsi'],
+            customTimePhrases: [{ phrase: "ba'da isya", replacement: 'at 19:30' }],
+            customTimeKeywords: [],
+            customStopwords: ['tolong dong'],
+          },
+        }),
+      })
+    );
+
+    expect(testRes.status).toBe(200);
+    const testBody = (await testRes.json()) as any;
+    expect(testBody.success).toBe(true);
+    expect(testBody.result.isTask).toBe(true);
+    expect(testBody.result.taskTitle).toBe('bimbingan skripsi');
+    expect(testBody.result.deadline).not.toBeNull();
   });
 });

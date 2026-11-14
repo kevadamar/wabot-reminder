@@ -26,7 +26,14 @@ import {
   SETTINGS_HTML,
   SETTINGS_JS,
 } from './assets.js';
-import { getAdminInstagram, setAdminInstagram } from '../services/settings.js';
+import {
+  getAdminInstagram,
+  setAdminInstagram,
+  getNlpCustomRules,
+  setNlpCustomRules,
+  type NlpCustomRules,
+} from '../services/settings.js';
+import { parseLocalTask } from '../services/nlp.js';
 import { LLM_CSS, LLM_HTML, LLM_JS } from './llm-assets.js';
 import { llmCallLog, type LlmCallSummary } from '../services/llm/call-log.js';
 
@@ -1083,8 +1090,14 @@ export function createDashboardHandler(options: {
       }
       if (pathname === '/api/settings') {
         try {
-          const adminInstagram = await getAdminInstagram(options.db);
-          return Response.json({ adminInstagram }, { headers: secureHeaders('application/json; charset=utf-8') });
+          const [adminInstagram, nlpRules] = await Promise.all([
+            getAdminInstagram(options.db),
+            getNlpCustomRules(options.db),
+          ]);
+          return Response.json(
+            { adminInstagram, nlpRules },
+            { headers: secureHeaders('application/json; charset=utf-8') }
+          );
         } catch (err: any) {
           return Response.json(
             { error: err?.message || 'FAILED_TO_GET_SETTINGS' },
@@ -1361,20 +1374,71 @@ export function createDashboardHandler(options: {
       if (pathname === '/api/settings') {
         try {
           const body = (await request.json().catch(() => ({}))) as any;
-          if (body?.adminInstagram === undefined || typeof body.adminInstagram !== 'string') {
+          const hasAdminIg = body?.adminInstagram !== undefined && typeof body.adminInstagram === 'string';
+          const hasNlpRules = body?.nlpRules !== undefined && typeof body.nlpRules === 'object' && body.nlpRules !== null;
+
+          if (!hasAdminIg && !hasNlpRules) {
             return Response.json(
               { error: 'MISSING_OR_INVALID_ADMIN_INSTAGRAM' },
               { status: 400, headers: secureHeaders('application/json; charset=utf-8') }
             );
           }
-          const saved = await setAdminInstagram(options.db, body.adminInstagram);
+
+          let savedAdminInstagram: string | undefined;
+          let savedNlpRules: NlpCustomRules | undefined;
+
+          if (hasAdminIg) {
+            savedAdminInstagram = await setAdminInstagram(options.db, body.adminInstagram);
+          }
+          if (hasNlpRules) {
+            savedNlpRules = await setNlpCustomRules(options.db, body.nlpRules);
+          }
+
           return Response.json(
-            { success: true, adminInstagram: saved },
+            {
+              success: true,
+              ...(savedAdminInstagram !== undefined ? { adminInstagram: savedAdminInstagram } : {}),
+              ...(savedNlpRules !== undefined ? { nlpRules: savedNlpRules } : {}),
+            },
             { headers: secureHeaders('application/json; charset=utf-8') }
           );
         } catch (err: any) {
           return Response.json(
             { error: err?.message || 'FAILED_TO_SAVE_SETTINGS' },
+            { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        }
+      }
+
+      if (pathname === '/api/settings/nlp-test') {
+        try {
+          const body = (await request.json().catch(() => ({}))) as any;
+          const testText = typeof body?.text === 'string' ? body.text.trim() : '';
+          if (!testText) {
+            return Response.json(
+              { error: 'TEXT_REQUIRED' },
+              { status: 400, headers: secureHeaders('application/json; charset=utf-8') }
+            );
+          }
+          const rules = body?.nlpRules || (await getNlpCustomRules(options.db));
+          const parsed = parseLocalTask(testText, new Date(), 'Asia/Jakarta', rules);
+          return Response.json(
+            {
+              success: true,
+              result: {
+                isTask: parsed.isTask,
+                taskTitle: parsed.taskTitle,
+                deadline: parsed.deadline ? parsed.deadline.toISOString() : null,
+                needsDeadline: parsed.needsDeadline,
+                reminderLeadMinutes: parsed.reminderLeadMinutes,
+                sentiment: parsed.sentiment,
+              },
+            },
+            { headers: secureHeaders('application/json; charset=utf-8') }
+          );
+        } catch (err: any) {
+          return Response.json(
+            { error: err?.message || 'FAILED_TO_TEST_NLP' },
             { status: 500, headers: secureHeaders('application/json; charset=utf-8') }
           );
         }

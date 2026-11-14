@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema.js';
 import { config } from '../config/index.js';
+import { DEFAULT_NLP_CUSTOM_RULES } from '../services/settings.js';
 
 const client = postgres(config.databaseUrl, {
   max: 10,
@@ -239,6 +240,17 @@ export async function initDb() {
       value TEXT NOT NULL,
       updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
     );
+  `;
+
+  // Seed default bot settings if not already present
+  const defaultNlpJson = JSON.stringify(DEFAULT_NLP_CUSTOM_RULES);
+  const defaultAdminIg = config.adminInstagram || '@kevadamar';
+  await client`
+    INSERT INTO bot_settings (key, value)
+    VALUES 
+      ('admin_instagram', ${defaultAdminIg}),
+      ('nlp_custom_rules', ${defaultNlpJson})
+    ON CONFLICT (key) DO NOTHING;
   `;
 }
 

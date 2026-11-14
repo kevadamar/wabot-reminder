@@ -85,6 +85,98 @@ export const SETTINGS_HTML = `<!doctype html>
         </div>
       </div>
     </section>
+
+    <section class="settings-section" aria-labelledby="nlp-heading">
+      <div class="section-heading">
+        <div>
+          <p class="index">02</p>
+          <h2 id="nlp-heading">Aturan & Frasa Parser NLP (Bahasa Indonesia)</h2>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="card-intro">
+          <h3>Konfigurasi Pengenalan Bahasa Alami (NLP)</h3>
+          <p class="text-muted">
+            Sesuaikan kata kerja tugas (task verbs), pemetaan frasa waktu bahasa Indonesia, kata kunci temporal, dan kata pembersih judul (stopwords). Aturan disimpan ke database (<code>bot_settings</code>) dan langsung aktif pada bot WhatsApp & Dashboard.
+          </p>
+        </div>
+
+        <form id="nlp-settings-form" class="settings-form" onsubmit="return false;">
+          <div class="form-group">
+            <label for="nlp-verbs-input" class="form-label">Kata Kerja Tugas Kustom (Custom Task Verbs)</label>
+            <p class="input-hint">Kata kerja pemicu pengenalan to-do (pisahkan dengan koma). Contoh: <code>minum obat, coding, code review, briefing, evaluasi, setor</code></p>
+            <textarea
+              id="nlp-verbs-input"
+              class="text-input textarea-input"
+              rows="3"
+              placeholder="minum obat, coding, briefing, evaluasi, setor, rekap"
+            ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="nlp-phrases-input" class="form-label">Pemetaan Frasa Waktu Kustom (Time Phrases Mapping)</label>
+            <p class="input-hint">
+              Satu aturan per baris dengan format: <code>frasa => target_waktu</code>. Format target chrono: <code>at HH:mm</code>, <code>tomorrow</code>, <code>tonight</code>, dll.
+            </p>
+            <textarea
+              id="nlp-phrases-input"
+              class="text-input textarea-input"
+              rows="6"
+              placeholder="ba'da isya => at 19:30&#10;ba'da maghrib => at 18:30&#10;subuh => at 04:30&#10;pulang kantor => at 17:00"
+            ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="nlp-keywords-input" class="form-label">Kata Kunci Waktu Tambahan (Time Keywords)</label>
+            <p class="input-hint">Kata pemicu konteks temporal tambahan (pisahkan dengan koma). Contoh: <code>weekend, akhir pekan, subuh, fajar, senja</code></p>
+            <input
+              type="text"
+              id="nlp-keywords-input"
+              class="text-input"
+              placeholder="weekend, akhir pekan, subuh, fajar"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="nlp-stopwords-input" class="form-label">Pembersih Judul Tugas / Stopwords</label>
+            <p class="input-hint">Kata-kata pengantar/basa-basi yang otomatis dihapus dari judul to-do (pisahkan dengan koma). Contoh: <code>tolong dong, tolong, dong, plis, please, ya</code></p>
+            <input
+              type="text"
+              id="nlp-stopwords-input"
+              class="text-input"
+              placeholder="tolong dong, tolong, dong, plis, please, ya"
+            />
+          </div>
+
+          <div class="nlp-action-bar">
+            <button type="submit" id="save-nlp-btn" class="btn-primary">
+              Simpan Aturan NLP
+            </button>
+            <button type="button" id="reset-nlp-btn" class="btn-secondary">
+              Reset ke Default
+            </button>
+          </div>
+        </form>
+
+        <div class="preview-box">
+          <div class="preview-header">
+            <span class="preview-badge">🧪 Live NLP Parser Simulator</span>
+            <span class="preview-note">Uji coba pemrosesan pesan tugas secara instan</span>
+          </div>
+          <div class="tester-input-group">
+            <input
+              type="text"
+              id="nlp-test-input"
+              class="text-input"
+              placeholder="Contoh: besok ba'da isya review PR tolong dong"
+            />
+            <button type="button" id="nlp-test-btn" class="btn-secondary">Uji Parser</button>
+          </div>
+          <div id="nlp-test-result" class="tester-result-box" hidden></div>
+        </div>
+      </div>
+    </section>
   </main>
 </body>
 </html>`;
@@ -267,6 +359,106 @@ export const SETTINGS_CSS = `
   border: 1px solid #f85149;
   color: #f85149;
 }
+
+.textarea-input {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.nlp-action-bar {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.btn-secondary {
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  padding: 0.65rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #30363d;
+  border-color: #8b949e;
+  color: #f0f6fc;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tester-input-group {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.tester-result-box {
+  background: #161b22;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  font-size: 0.88rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tester-result-item {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.tester-label {
+  color: var(--muted, #8b949e);
+  font-size: 0.8rem;
+  min-width: 140px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tester-val {
+  color: #f0f6fc;
+  font-family: var(--font-mono, monospace);
+  font-weight: 500;
+}
+
+.badge-tag {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-green {
+  background: rgba(46, 160, 67, 0.2);
+  color: #3fb950;
+  border: 1px solid rgba(46, 160, 67, 0.4);
+}
+
+.badge-red {
+  background: rgba(248, 81, 73, 0.2);
+  color: #f85149;
+  border: 1px solid rgba(248, 81, 73, 0.4);
+}
+
+.badge-blue {
+  background: rgba(88, 166, 255, 0.2);
+  color: #58a6ff;
+  border: 1px solid rgba(88, 166, 255, 0.4);
+}
 `;
 
 export const SETTINGS_JS = `(() => {
@@ -277,6 +469,18 @@ export const SETTINGS_JS = `(() => {
   const banner = document.getElementById('feedback-banner');
   const refreshBtn = document.getElementById('refresh');
   const lastUpdated = document.getElementById('last-updated');
+
+  // NLP Elements
+  const nlpForm = document.getElementById('nlp-settings-form');
+  const nlpVerbsInput = document.getElementById('nlp-verbs-input');
+  const nlpPhrasesInput = document.getElementById('nlp-phrases-input');
+  const nlpKeywordsInput = document.getElementById('nlp-keywords-input');
+  const nlpStopwordsInput = document.getElementById('nlp-stopwords-input');
+  const saveNlpBtn = document.getElementById('save-nlp-btn');
+  const resetNlpBtn = document.getElementById('reset-nlp-btn');
+  const nlpTestInput = document.getElementById('nlp-test-input');
+  const nlpTestBtn = document.getElementById('nlp-test-btn');
+  const nlpTestResult = document.getElementById('nlp-test-result');
 
   function showBanner(msg, isError = false) {
     if (!banner) return;
@@ -298,6 +502,56 @@ export const SETTINGS_JS = `(() => {
     }
   }
 
+  function populateNlpFields(rules) {
+    if (!rules) return;
+    if (nlpVerbsInput) {
+      nlpVerbsInput.value = (rules.customTaskVerbs || []).join(', ');
+    }
+    if (nlpPhrasesInput) {
+      nlpPhrasesInput.value = (rules.customTimePhrases || [])
+        .map((r) => \`\${r.phrase} => \${r.replacement}\`)
+        .join('\\n');
+    }
+    if (nlpKeywordsInput) {
+      nlpKeywordsInput.value = (rules.customTimeKeywords || []).join(', ');
+    }
+    if (nlpStopwordsInput) {
+      nlpStopwordsInput.value = (rules.customStopwords || []).join(', ');
+    }
+  }
+
+  function gatherNlpRulesFromForm() {
+    const splitComma = (val) =>
+      (val || '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+
+    const phrasesLines = (nlpPhrasesInput?.value || '')
+      .split('\\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    const customTimePhrases = [];
+    for (const line of phrasesLines) {
+      const parts = line.split(/=>|:/);
+      if (parts.length >= 2) {
+        const phrase = parts[0].trim().toLowerCase();
+        const replacement = parts.slice(1).join(':').trim();
+        if (phrase && replacement) {
+          customTimePhrases.push({ phrase, replacement });
+        }
+      }
+    }
+
+    return {
+      customTaskVerbs: splitComma(nlpVerbsInput?.value),
+      customTimePhrases,
+      customTimeKeywords: splitComma(nlpKeywordsInput?.value),
+      customStopwords: splitComma(nlpStopwordsInput?.value),
+    };
+  }
+
   async function loadSettings() {
     try {
       if (lastUpdated) lastUpdated.textContent = 'Memuat data…';
@@ -306,6 +560,11 @@ export const SETTINGS_JS = `(() => {
       const data = await res.json();
       if (input) input.value = data.adminInstagram || '@kevadamar';
       updatePreview(data.adminInstagram || '@kevadamar');
+
+      if (data.nlpRules) {
+        populateNlpFields(data.nlpRules);
+      }
+
       if (lastUpdated) {
         const d = new Date();
         lastUpdated.textContent = 'Diperbarui ' + d.toLocaleTimeString('id-ID');
@@ -365,7 +624,184 @@ export const SETTINGS_JS = `(() => {
     });
   }
 
+  if (nlpForm) {
+    nlpForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const nlpRules = gatherNlpRulesFromForm();
+
+      if (saveNlpBtn) {
+        saveNlpBtn.disabled = true;
+        saveNlpBtn.textContent = 'Menyimpan…';
+      }
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ nlpRules }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showBanner('✅ Aturan NLP berhasil disimpan dan aktif!');
+          if (data.nlpRules) {
+            populateNlpFields(data.nlpRules);
+          }
+          if (lastUpdated) {
+            const d = new Date();
+            lastUpdated.textContent = 'Diperbarui ' + d.toLocaleTimeString('id-ID');
+          }
+        } else {
+          showBanner('⚠️ ' + (data.error || 'Gagal menyimpan aturan NLP'), true);
+        }
+      } catch (err) {
+        showBanner('Terjadi kesalahan jaringan saat menyimpan aturan NLP', true);
+      } finally {
+        if (saveNlpBtn) {
+          saveNlpBtn.disabled = false;
+          saveNlpBtn.textContent = 'Simpan Aturan NLP';
+        }
+      }
+    });
+  }
+
+  if (resetNlpBtn) {
+    resetNlpBtn.addEventListener('click', async () => {
+      if (!confirm('Yakin ingin mereset aturan NLP ke pengaturan default?')) return;
+      if (resetNlpBtn) {
+        resetNlpBtn.disabled = true;
+        resetNlpBtn.textContent = 'Mereset…';
+      }
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            nlpRules: {
+              customTaskVerbs: [],
+              customTimePhrases: [],
+              customTimeKeywords: [],
+              customStopwords: [],
+            },
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showBanner('✅ Aturan NLP berhasil direset ke default!');
+          await loadSettings();
+        } else {
+          showBanner('⚠️ ' + (data.error || 'Gagal mereset aturan NLP'), true);
+        }
+      } catch (err) {
+        showBanner('Terjadi kesalahan jaringan saat mereset', true);
+      } finally {
+        if (resetNlpBtn) {
+          resetNlpBtn.disabled = false;
+          resetNlpBtn.textContent = 'Reset ke Default';
+        }
+      }
+    });
+  }
+
+  if (nlpTestBtn && nlpTestInput && nlpTestResult) {
+    const runTest = async () => {
+      const text = (nlpTestInput.value || '').trim();
+      if (!text) {
+        showBanner('Masukkan teks tugas terlebih dahulu untuk diuji', true);
+        return;
+      }
+
+      nlpTestBtn.disabled = true;
+      nlpTestBtn.textContent = 'Menguji…';
+      nlpTestResult.hidden = false;
+      nlpTestResult.innerHTML = '<span class="muted">Memproses pengujian NLP…</span>';
+
+      try {
+        const rules = gatherNlpRulesFromForm();
+        const res = await fetch('/api/settings/nlp-test', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text, nlpRules: rules }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success && data.result) {
+          const r = data.result;
+          let deadlineText = 'Tidak ada tenggat waktu';
+          if (r.deadline) {
+            const d = new Date(r.deadline);
+            deadlineText = d.toLocaleString('id-ID', {
+              timeZone: 'Asia/Jakarta',
+              weekday: 'long',
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            }) + ' WIB';
+          }
+
+          nlpTestResult.innerHTML = \`
+            <div class="tester-result-item">
+              <span class="tester-label">Status Tugas:</span>
+              <span class="tester-val">
+                <span class="badge-tag \${r.isTask ? 'badge-green' : 'badge-red'}">
+                  \${r.isTask ? '✅ Tugas (isTask: true)' : '❌ Bukan Tugas (isTask: false)'}
+                </span>
+              </span>
+            </div>
+            <div class="tester-result-item">
+              <span class="tester-label">Judul Tugas:</span>
+              <span class="tester-val">\${r.taskTitle || '(kosong)'}</span>
+            </div>
+            <div class="tester-result-item">
+              <span class="tester-label">Tenggat Waktu:</span>
+              <span class="tester-val">\${deadlineText}</span>
+            </div>
+            <div class="tester-result-item">
+              <span class="tester-label">Perlu Tenggat:</span>
+              <span class="tester-val">\${r.needsDeadline ? 'Ya (needsDeadline: true)' : 'Tidak'}</span>
+            </div>
+            \${r.reminderLeadMinutes ? \`
+            <div class="tester-result-item">
+              <span class="tester-label">Pengingat Awal:</span>
+              <span class="tester-val">\${r.reminderLeadMinutes} menit sebelum</span>
+            </div>\` : ''}
+            <div class="tester-result-item">
+              <span class="tester-label">Nuansa Sentimen:</span>
+              <span class="tester-val">
+                <span class="badge-tag badge-blue">\${r.sentiment?.tone || 'neutral'}</span>
+              </span>
+            </div>
+          \`;
+        } else {
+          nlpTestResult.innerHTML = \`<span style="color:#f85149">⚠️ Gagal menguji: \${data.error || 'Unknown error'}</span>\`;
+        }
+      } catch (err) {
+        nlpTestResult.innerHTML = '<span style="color:#f85149">⚠️ Terjadi kesalahan jaringan saat menguji parser</span>';
+      } finally {
+        nlpTestBtn.disabled = false;
+        nlpTestBtn.textContent = 'Uji Parser';
+      }
+    };
+
+    nlpTestBtn.addEventListener('click', runTest);
+    nlpTestInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        runTest();
+      }
+    });
+  }
+
   if (refreshBtn) {
+    refreshBtn.addEventListener('click', loadSettings);
+  }
+
+  loadSettings();
+})();
     refreshBtn.addEventListener('click', loadSettings);
   }
 
