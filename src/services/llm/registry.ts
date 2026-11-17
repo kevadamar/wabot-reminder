@@ -29,10 +29,7 @@ function geminiTimeout(op: Operation, cfg: LlmConfig): number {
 
 function antigravityTimeout(op: Operation, cfg: LlmConfig): number {
   if (op === 'link_review') return Math.max(cfg.antigravity.timeoutMs, 45_000);
-  // For interactive WhatsApp operations (nlp_parse, affirmation, reminder), cap at 5s to prevent long blocking
-  if (op === 'nlp_parse' || op === 'affirmation' || op === 'reminder_message') {
-    return Math.min(cfg.antigravity.timeoutMs, 5000);
-  }
+  // The chain's total budget still limits each attempt; respect the provider timeout for text operations.
   return cfg.antigravity.timeoutMs;
 }
 

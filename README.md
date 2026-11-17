@@ -432,6 +432,8 @@ Jika Anda sudah menginstal **Antigravity CLI** (`agy`) di VPS/Host server (di lu
    ```
    `http` ke `host.docker.internal` (atau IP privat lain di server yang sama) diizinkan tanpa konfigurasi tambahan. Posisi `antigravity` di `LLM_CHAIN_*` menentukan kapan bridge dipanggil: di depan berarti dipakai lebih dulu, di belakang berarti hanya sebagai cadangan.
 
+   `ANTIGRAVITY_TIMEOUT_MS` di bot berlaku untuk setiap percobaan Antigravity, termasuk NLP, afirmasi, dan teks pengingat; tidak ada batas tetap 5 detik. Waktu efektif tetap bisa lebih pendek jika sisa `LLM_TOTAL_BUDGET_MS` tidak cukup. Atur timeout proses bridge di host sekurang-kurangnya sama panjang, lalu restart proses bridge dengan env terbaru dan redeploy bot agar konfigurasi baru dibaca.
+
    Di Dokploy (Docker Swarm), `host.docker.internal` sering tidak bisa dipakai. Kalau dashboard **LLM Calls** menampilkan `network · ConnectionRefused` atau `ENOTFOUND`, pakai IP host yang dijangkau container (misalnya IP gateway `docker_gwbridge`/`docker0` atau IP privat VPS), dan jalankan bridge dengan `HOST` di IP itu:
    ```bash
    HOST=172.18.0.1 ANTIGRAVITY_BRIDGE_TOKEN=... pm2 start scripts/antigravity-bridge.ts --name agy-bridge --interpreter bun
